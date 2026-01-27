@@ -35,16 +35,23 @@ export default function Home() {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [plotResponse, setPlotResponse] = useState<PlotResponse | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [startLabel, setStartLabel] = useState<string>("");
+  const [endLabel, setEndLabel] = useState<string>("");
+
+  const loadFiles = async () => {
+    const response = await fetch(`${API_BASE}/api/input-files`);
+    const payload = (await response.json()) as InputFilesResponse;
+    setInputFiles(payload.files);
+    setSeriesNames(payload.series_names);
+    setSelectedSeries((prev) =>
+      prev && payload.series_names.includes(prev) ? prev : payload.series_names[0] || ""
+    );
+    setSelectedFiles((prev) =>
+      prev.length ? prev : payload.files.slice(0, 2).map((file) => file.id)
+    );
+  };
 
   useEffect(() => {
-    const loadFiles = async () => {
-      const response = await fetch(`${API_BASE}/api/input-files`);
-      const payload = (await response.json()) as InputFilesResponse;
-      setInputFiles(payload.files);
-      setSeriesNames(payload.series_names);
-      setSelectedSeries(payload.series_names[0] ?? "");
-      setSelectedFiles(payload.files.slice(0, 2).map((file) => file.id));
-    };
     loadFiles();
   }, []);
 
@@ -58,6 +65,24 @@ export default function Home() {
       name: seriesEntry.file
     }));
   }, [plotResponse]);
+
+  const availableLabels = useMemo(() => {
+    if (selectedFiles.length === 0) return [];
+    const primary = inputFiles.find((file) => file.id === selectedFiles[0]);
+    return primary?.columns ?? [];
+  }, [inputFiles, selectedFiles]);
+
+  useEffect(() => {
+    if (availableLabels.length === 0) {
+      setStartLabel("");
+      setEndLabel("");
+      return;
+    }
+    setStartLabel((prev) => (availableLabels.includes(prev) ? prev : availableLabels[0]));
+    setEndLabel((prev) =>
+      availableLabels.includes(prev) ? prev : availableLabels[availableLabels.length - 1]
+    );
+  }, [availableLabels]);
 
   const handleFileToggle = (fileId: string) => {
     setStatusMessage("");
@@ -73,6 +98,24 @@ export default function Home() {
     });
   };
 
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`${API_BASE}/api/input-files/upload`, {
+      method: "POST",
+      body: formData
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      setStatusMessage(error.detail ?? "Unable to upload file.");
+      return;
+    }
+    await loadFiles();
+    setStatusMessage(`Uploaded ${file.name}.`);
+  };
+
   const fetchPlot = async () => {
     if (!selectedSeries || selectedFiles.length === 0) {
       setStatusMessage("Choose a series name and at least one file.");
@@ -83,7 +126,9 @@ export default function Home() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         series_name: selectedSeries,
-        files: selectedFiles
+        files: selectedFiles,
+        start_label: startLabel || null,
+        end_label: endLabel || null
       })
     });
     if (!response.ok) {
@@ -95,12 +140,54 @@ export default function Home() {
     setPlotResponse(payload);
   };
 
+  const updateValue = async (fileId: string, label: string, value: number) => {
+    const response = await fetch(`${API_BASE}/api/input-files/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file_id: fileId,
+        series_name: selectedSeries,
+        label,
+        value
+      })
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      setStatusMessage(error.detail ?? "Unable to update value.");
+    }
+  };
+
+  const handlePlotUpdate = (figure: { data?: { y?: Array<number | null> }[] }) => {
+    if (!plotResponse || !figure.data) return;
+    const updates: PlotResponse = {
+      labels: plotResponse.labels,
+      series: plotResponse.series.map((entry) => ({ ...entry }))
+    };
+    let hasChanges = false;
+    figure.data.forEach((trace, traceIdx) => {
+      const updatedValues = trace?.y ?? [];
+      const current = plotResponse.series[traceIdx]?.values ?? [];
+      updatedValues.forEach((value, idx) => {
+        if (value === undefined || current[idx] === value) return;
+        const numericValue = value === null ? null : Number(value);
+        if (numericValue === null || Number.isNaN(numericValue)) return;
+        updates.series[traceIdx].values[idx] = numericValue;
+        hasChanges = true;
+        void updateValue(plotResponse.series[traceIdx].file, plotResponse.labels[idx], numericValue);
+      });
+    });
+    if (hasChanges) {
+      setPlotResponse(updates);
+    }
+  };
+
   return (
     <main>
       <h1>Impulse Overlay – Financial Time Series</h1>
 
       <section className="card">
-        <div className="section-title">1) Available input files</div>
+        <div className="section-title">1) Upload & available files</div>
+        <input type="file" accept=".csv,.xlsx" onChange={handleUpload} />
         {inputFiles.length === 0 && (
           <p className="notice">No input files found. Add CSVs to the test folder.</p>
         )}
@@ -125,7 +212,7 @@ export default function Home() {
       </section>
 
       <section className="card">
-        <div className="section-title">2) Plot selection</div>
+        <div className="section-title">2) Plot selection & time range</div>
         <div className="grid">
           <div>
             <label>Series name</label>
@@ -136,6 +223,29 @@ export default function Home() {
               {seriesNames.map((name) => (
                 <option key={name} value={name}>
                   {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label>Start label</label>
+            <select
+              value={startLabel}
+              onChange={(event) => setStartLabel(event.target.value)}
+            >
+              {availableLabels.map((label) => (
+                <option key={label} value={label}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label>End label</label>
+            <select value={endLabel} onChange={(event) => setEndLabel(event.target.value)}>
+              {availableLabels.map((label) => (
+                <option key={label} value={label}>
+                  {label}
                 </option>
               ))}
             </select>
@@ -156,9 +266,13 @@ export default function Home() {
                 title: `Series: ${selectedSeries}`,
                 height: 520,
                 margin: { t: 50, r: 30, l: 50, b: 40 },
-                hovermode: "closest"
+                hovermode: "closest",
+                dragmode: "closest"
               }}
+              config={{ editable: true }}
+              onUpdate={handlePlotUpdate}
             />
+            <p className="notice">Drag points on the chart or edit values in the table below.</p>
             <h4>Series values by file</h4>
             <table className="table">
               <thead>
@@ -174,7 +288,43 @@ export default function Home() {
                   <tr key={seriesEntry.file}>
                     <td>{seriesEntry.file}</td>
                     {seriesEntry.values.map((value, idx) => (
-                      <td key={`${seriesEntry.file}-${idx}`}>{value ?? ""}</td>
+                      <td key={`${seriesEntry.file}-${idx}`}>
+                        <input
+                          type="number"
+                          value={value ?? ""}
+                          onChange={(event) => {
+                            const nextValue = event.target.value === "" ? null : Number(event.target.value);
+                            if (nextValue !== null && Number.isNaN(nextValue)) return;
+                            setPlotResponse((prev) => {
+                              if (!prev) return prev;
+                              const updated = {
+                                labels: prev.labels,
+                                series: prev.series.map((entry) => ({ ...entry }))
+                              };
+                              const target = updated.series.find((entry) => entry.file === seriesEntry.file);
+                              if (!target) return prev;
+                              target.values[idx] = nextValue;
+                              return updated;
+                            });
+                          }}
+                          onBlur={(event) => {
+                            const nextValue = Number(event.target.value);
+                            if (Number.isNaN(nextValue)) return;
+                            void updateValue(seriesEntry.file, plotResponse.labels[idx], nextValue);
+                            setPlotResponse((prev) => {
+                              if (!prev) return prev;
+                              const updated = {
+                                labels: prev.labels,
+                                series: prev.series.map((entry) => ({ ...entry }))
+                              };
+                              const target = updated.series.find((entry) => entry.file === seriesEntry.file);
+                              if (!target) return prev;
+                              target.values[idx] = nextValue;
+                              return updated;
+                            });
+                          }}
+                        />
+                      </td>
                     ))}
                   </tr>
                 ))}
