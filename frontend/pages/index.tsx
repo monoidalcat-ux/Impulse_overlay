@@ -1,5 +1,11 @@
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import Plot from "react-plotly.js";
+import type { PlotMouseEvent } from "plotly.js";
+
+const Plot = dynamic(() => import("react-plotly.js"), {
+  ssr: false,
+  loading: () => <p className="notice">Loading chart…</p>
+});
 
 type UploadResponse = {
   dataset_id: string;
@@ -116,7 +122,7 @@ export default function Home() {
     setEndDate(dataset.max_date);
   };
 
-  const handlePlotClick = (event: Plotly.PlotMouseEvent) => {
+  const handlePlotClick = (event: PlotMouseEvent) => {
     const point = event.points?.[0];
     if (!point) return;
     const column = point.data.name as string;
