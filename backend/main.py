@@ -165,6 +165,16 @@ def _slice_columns(
     return columns[start_idx : end_idx + 1]
 
 
+def _merge_columns(base: List[str], additions: List[str]) -> List[str]:
+    merged = list(base)
+    seen = set(base)
+    for label in additions:
+        if label not in seen:
+            merged.append(label)
+            seen.add(label)
+    return merged
+
+
 def _prepare_preview(df: pd.DataFrame, limit: int = 20) -> List[Dict[str, Any]]:
     preview = df.head(limit).copy()
     for column in preview.columns:
@@ -228,6 +238,8 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
     columns = INPUT_FILE_COLUMNS.get(primary_file, [])
     if not columns:
         raise HTTPException(status_code=400, detail="No columns available for selected file")
+    for file_id in request.files[1:]:
+        columns = _merge_columns(columns, INPUT_FILE_COLUMNS.get(file_id, []))
     columns = _slice_columns(columns, request.start_label, request.end_label)
 
     series_payload = []

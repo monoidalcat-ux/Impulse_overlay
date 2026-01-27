@@ -103,6 +103,19 @@ button.ghost {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
+  min-width: 110px;
+}
+
+.action-download {
+  background: #e6f4ea;
+  border-color: #a5c8b0;
+  color: #2f5f3a;
+}
+
+.action-delete {
+  background: #f4e6e6;
+  border-color: #d1a6a6;
+  color: #7a2e2e;
 }
 
 .table {

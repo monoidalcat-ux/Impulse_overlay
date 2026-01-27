@@ -267,14 +267,14 @@ export default function Home() {
                   </label>
                   <div className="file-actions">
                     <a
-                      className="ghost-button"
+                      className="ghost-button action-download"
                       href={`${API_BASE}/api/input-files/${file.id}/download`}
                       download
                     >
                       Download
                     </a>
                     <button
-                      className="ghost-button"
+                      className="ghost-button action-delete"
                       type="button"
                       onClick={() => void deleteInputFile(file.id)}
                     >
