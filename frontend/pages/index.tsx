@@ -53,6 +53,29 @@ export default function Home() {
     return { label: normalized, year: normalized, quarter: "" };
   };
 
+  const compareLabels = (left: string, right: string) => {
+    const leftQuarter = formatQuarterLabel(left);
+    const rightQuarter = formatQuarterLabel(right);
+    if (leftQuarter.quarter && rightQuarter.quarter) {
+      const leftYear = Number(leftQuarter.year);
+      const rightYear = Number(rightQuarter.year);
+      if (!Number.isNaN(leftYear) && !Number.isNaN(rightYear) && leftYear !== rightYear) {
+        return leftYear - rightYear;
+      }
+      const leftQuarterNumber = Number(leftQuarter.quarter);
+      const rightQuarterNumber = Number(rightQuarter.quarter);
+      if (!Number.isNaN(leftQuarterNumber) && !Number.isNaN(rightQuarterNumber)) {
+        return leftQuarterNumber - rightQuarterNumber;
+      }
+    }
+    const leftDate = Date.parse(left);
+    const rightDate = Date.parse(right);
+    if (!Number.isNaN(leftDate) && !Number.isNaN(rightDate) && leftDate !== rightDate) {
+      return leftDate - rightDate;
+    }
+    return left.localeCompare(right);
+  };
+
   const quarterLabels = useMemo(
     () => plotResponse?.labels.map(formatQuarterLabel) ?? [],
     [plotResponse]
@@ -91,19 +114,30 @@ export default function Home() {
 
   const plotData = useMemo(() => {
     if (!plotResponse) return [];
-    return plotResponse.series.map((seriesEntry) => ({
-      x: plotResponse.labels.map((_, index) => index),
-      y: seriesEntry.values,
-      type: "scatter",
-      mode: "lines+markers",
-      name: seriesEntry.file
-    }));
+    return plotResponse.series.map((seriesEntry) => {
+      const alignedValues = plotResponse.labels.map(
+        (_, index) => seriesEntry.values[index] ?? null
+      );
+      return {
+        x: plotResponse.labels.map((_, index) => index),
+        y: alignedValues,
+        type: "scatter",
+        mode: "lines+markers",
+        name: seriesEntry.file,
+        marker: { size: 8 },
+        connectgaps: false
+      };
+    });
   }, [plotResponse]);
 
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
-    const primary = inputFiles.find((file) => file.id === selectedFiles[0]);
-    return primary?.columns ?? [];
+    const merged = new Set<string>();
+    selectedFiles.forEach((fileId) => {
+      const file = inputFiles.find((entry) => entry.id === fileId);
+      file?.columns.forEach((label) => merged.add(label));
+    });
+    return Array.from(merged).sort(compareLabels);
   }, [inputFiles, selectedFiles]);
 
   useEffect(() => {
@@ -218,28 +252,33 @@ export default function Home() {
     setStatusMessage(`Removed ${fileId}.`);
   };
 
-  const handlePlotUpdate = (figure: { data?: { y?: Array<number | null> }[] }) => {
-    if (!plotResponse || !figure.data) return;
-    const updates: PlotResponse = {
-      labels: plotResponse.labels,
-      series: plotResponse.series.map((entry) => ({ ...entry }))
-    };
-    let hasChanges = false;
-    figure.data.forEach((trace, traceIdx) => {
-      const updatedValues = trace?.y ?? [];
-      const current = plotResponse.series[traceIdx]?.values ?? [];
-      updatedValues.forEach((value, idx) => {
-        if (value === undefined || current[idx] === value) return;
-        const numericValue = value === null ? null : Number(value);
-        if (numericValue === null || Number.isNaN(numericValue)) return;
-        updates.series[traceIdx].values[idx] = numericValue;
-        hasChanges = true;
-        void updateValue(plotResponse.series[traceIdx].file, plotResponse.labels[idx], numericValue);
-      });
-    });
-    if (hasChanges) {
-      setPlotResponse(updates);
+  const handlePointClick = (event: {
+    points?: Array<{ curveNumber: number; pointNumber: number; y?: number | null }>;
+  }) => {
+    if (!plotResponse || !event.points || event.points.length === 0) return;
+    const point = event.points[0];
+    const traceIndex = point.curveNumber;
+    const pointIndex = point.pointNumber;
+    const currentValue = point.y ?? plotResponse.series[traceIndex]?.values?.[pointIndex] ?? "";
+    const input = window.prompt("Enter a new value for this datapoint:", String(currentValue ?? ""));
+    if (input === null) return;
+    const nextValue = Number(input);
+    if (Number.isNaN(nextValue)) {
+      setStatusMessage("Please enter a valid numeric value.");
+      return;
     }
+    setPlotResponse((prev) => {
+      if (!prev) return prev;
+      const updated = {
+        labels: prev.labels,
+        series: prev.series.map((entry) => ({ ...entry }))
+      };
+      const target = updated.series[traceIndex];
+      if (!target) return prev;
+      target.values[pointIndex] = nextValue;
+      return updated;
+    });
+    void updateValue(plotResponse.series[traceIndex].file, plotResponse.labels[pointIndex], nextValue);
   };
 
   return (
@@ -369,22 +408,42 @@ export default function Home() {
                 height: 520,
                 margin: { t: 50, r: 30, l: 50, b: 80 },
                 hovermode: "closest",
-                dragmode: "closest",
+                dragmode: false,
                 xaxis: {
                   tickmode: "array",
                   tickvals: tickValues,
                   ticktext: tickText,
                   tickangle: -45,
-                  automargin: true
+                  automargin: true,
+                  fixedrange: true
+                },
+                yaxis: {
+                  fixedrange: true
                 }
               }}
-              config={{ editable: true }}
-              onUpdate={handlePlotUpdate}
+              config={{
+                scrollZoom: false,
+                doubleClick: false,
+                modeBarButtonsToRemove: [
+                  "zoom2d",
+                  "pan2d",
+                  "select2d",
+                  "lasso2d",
+                  "zoomIn2d",
+                  "zoomOut2d",
+                  "autoScale2d",
+                  "resetScale2d"
+                ]
+              }}
+              onClick={handlePointClick}
             />
             {yearsOnAxis.length > 0 && (
               <p className="notice">Quarter spacing applied. Years shown: {yearsOnAxis.join(", ")}.</p>
             )}
-            <p className="notice">Drag points on the chart or edit values in the table below.</p>
+            <p className="notice">
+              Click a point to enter a value, or edit values in the table below.
+            </p>
+            <p className="notice">Tip: click a legend item to isolate a track.</p>
             <h4>Series values by file</h4>
             <table className="table">
               <thead>
