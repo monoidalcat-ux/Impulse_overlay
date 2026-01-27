@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -32,6 +33,12 @@ class Dataset:
 
 DATASETS: Dict[str, Dataset] = {}
 
+INPUT_FILES: Dict[str, pd.DataFrame] = {}
+INPUT_FILE_COLUMNS: Dict[str, List[str]] = {}
+INPUT_FILE_SERIES: Dict[str, List[str]] = {}
+
+TEST_DATA_DIR = Path(__file__).resolve().parents[1] / "test"
+
 
 class SeriesRequest(BaseModel):
     date_column: str
@@ -51,6 +58,36 @@ class EditRequest(BaseModel):
     edits: List[EditItem]
 
 
+class InputFileMetadata(BaseModel):
+    id: str
+    name: str
+    series: List[str]
+    columns: List[str]
+
+
+class InputFilesResponse(BaseModel):
+    files: List[InputFileMetadata]
+    series_names: List[str]
+
+
+class PlotRequest(BaseModel):
+    series_name: str
+    files: List[str]
+    start_label: Optional[str] = None
+    end_label: Optional[str] = None
+
+
+class InputFileUploadResponse(BaseModel):
+    file: InputFileMetadata
+
+
+class InputFileEditRequest(BaseModel):
+    file_id: str
+    series_name: str
+    label: str
+    value: float
+
+
 def _infer_date_column(df: pd.DataFrame) -> str:
     best_column = df.columns[0]
     best_score = -1.0
@@ -61,6 +98,64 @@ def _infer_date_column(df: pd.DataFrame) -> str:
             best_score = score
             best_column = column
     return best_column
+
+
+def _parse_input_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "Name" not in df.columns:
+        raise HTTPException(status_code=400, detail="Input file must include a Name column")
+    parsed = df.set_index("Name")
+    parsed.columns = [str(col) for col in parsed.columns]
+    return parsed
+
+
+def _load_input_files() -> None:
+    INPUT_FILES.clear()
+    INPUT_FILE_COLUMNS.clear()
+    INPUT_FILE_SERIES.clear()
+    if not TEST_DATA_DIR.exists():
+        return
+    for path in sorted(TEST_DATA_DIR.glob("*.csv")):
+        df = pd.read_csv(path)
+        try:
+            parsed = _parse_input_dataframe(df)
+        except HTTPException:
+            continue
+        INPUT_FILES[path.name] = parsed
+        INPUT_FILE_COLUMNS[path.name] = parsed.columns.tolist()
+        INPUT_FILE_SERIES[path.name] = parsed.index.astype(str).tolist()
+
+
+def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -> List[float | None]:
+    if series_name not in df.index:
+        raise HTTPException(status_code=400, detail=f"Unknown series name: {series_name}")
+    row = df.loc[series_name].reindex(columns)
+    values: List[float | None] = []
+    for value in row.tolist():
+        if pd.isna(value):
+            values.append(None)
+        else:
+            values.append(float(value))
+    return values
+
+
+def _slice_columns(
+    columns: List[str], start_label: Optional[str], end_label: Optional[str]
+) -> List[str]:
+    if not columns:
+        return columns
+    start_idx = 0
+    end_idx = len(columns) - 1
+    if start_label:
+        if start_label not in columns:
+            raise HTTPException(status_code=400, detail=f"Unknown start label: {start_label}")
+        start_idx = columns.index(start_label)
+    if end_label:
+        if end_label not in columns:
+            raise HTTPException(status_code=400, detail=f"Unknown end label: {end_label}")
+        end_idx = columns.index(end_label)
+    if start_idx > end_idx:
+        start_idx, end_idx = end_idx, start_idx
+    return columns[start_idx : end_idx + 1]
 
 
 def _prepare_preview(df: pd.DataFrame, limit: int = 20) -> List[Dict[str, Any]]:
@@ -96,6 +191,89 @@ def _serialize_series(df: pd.DataFrame, date_column: str, series: List[str]) -> 
     for name in series:
         payload[name] = df[name].tolist()
     return payload
+
+
+@app.get("/api/input-files", response_model=InputFilesResponse)
+def list_input_files() -> InputFilesResponse:
+    files: List[InputFileMetadata] = []
+    series_names: set[str] = set()
+    for file_id in sorted(INPUT_FILES.keys()):
+        metadata = InputFileMetadata(
+            id=file_id,
+            name=file_id,
+            series=INPUT_FILE_SERIES.get(file_id, []),
+            columns=INPUT_FILE_COLUMNS.get(file_id, []),
+        )
+        files.append(metadata)
+        series_names.update(metadata.series)
+    return InputFilesResponse(files=files, series_names=sorted(series_names))
+
+
+@app.post("/api/plot-series")
+def plot_series(request: PlotRequest) -> Dict[str, Any]:
+    if not request.files:
+        raise HTTPException(status_code=400, detail="Select at least one file to plot")
+    missing = [file_id for file_id in request.files if file_id not in INPUT_FILES]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Unknown files: {', '.join(missing)}")
+
+    primary_file = request.files[0]
+    columns = INPUT_FILE_COLUMNS.get(primary_file, [])
+    if not columns:
+        raise HTTPException(status_code=400, detail="No columns available for selected file")
+    columns = _slice_columns(columns, request.start_label, request.end_label)
+
+    series_payload = []
+    for file_id in request.files:
+        df = INPUT_FILES[file_id]
+        values = _get_series_values(df, request.series_name, columns)
+        series_payload.append({"file": file_id, "values": values})
+
+    return {"labels": columns, "series": series_payload}
+
+
+@app.post("/api/input-files/upload", response_model=InputFileUploadResponse)
+async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResponse:
+    content = await file.read()
+    filename = file.filename or "uploaded.csv"
+    try:
+        if filename.endswith(".xlsx"):
+            df = pd.read_excel(io.BytesIO(content))
+        else:
+            df = pd.read_csv(io.BytesIO(content))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc}") from exc
+
+    parsed = _parse_input_dataframe(df)
+    file_id = filename
+    if file_id in INPUT_FILES:
+        file_id = f"{Path(filename).stem}-{uuid.uuid4().hex[:8]}{Path(filename).suffix}"
+    INPUT_FILES[file_id] = parsed
+    INPUT_FILE_COLUMNS[file_id] = parsed.columns.tolist()
+    INPUT_FILE_SERIES[file_id] = parsed.index.astype(str).tolist()
+    metadata = InputFileMetadata(
+        id=file_id,
+        name=file_id,
+        series=INPUT_FILE_SERIES[file_id],
+        columns=INPUT_FILE_COLUMNS[file_id],
+    )
+    return InputFileUploadResponse(file=metadata)
+
+
+@app.post("/api/input-files/edit")
+def edit_input_file(request: InputFileEditRequest) -> Dict[str, Any]:
+    df = INPUT_FILES.get(request.file_id)
+    if df is None:
+        raise HTTPException(status_code=404, detail="Input file not found")
+    if request.series_name not in df.index:
+        raise HTTPException(status_code=400, detail="Unknown series name")
+    if request.label not in df.columns:
+        raise HTTPException(status_code=400, detail="Unknown label")
+    df.at[request.series_name, request.label] = request.value
+    return {"status": "ok"}
+
+
+_load_input_files()
 
 
 @app.post("/api/upload")
