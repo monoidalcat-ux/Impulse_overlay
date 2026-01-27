@@ -264,13 +264,22 @@ export default function Home() {
                   />
                   {" "}{file.name} ({file.series.length} series)
                 </label>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => void deleteInputFile(file.id)}
-                >
-                  Delete
-                </button>
+                <div className="file-actions">
+                  <a
+                    className="ghost-button"
+                    href={`${API_BASE}/api/input-files/${file.id}/download`}
+                    download
+                  >
+                    Download
+                  </a>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => void deleteInputFile(file.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
