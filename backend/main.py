@@ -36,6 +36,7 @@ DATASETS: Dict[str, Dataset] = {}
 INPUT_FILES: Dict[str, pd.DataFrame] = {}
 INPUT_FILE_COLUMNS: Dict[str, List[str]] = {}
 INPUT_FILE_SERIES: Dict[str, List[str]] = {}
+INPUT_FILE_FORMAT: Dict[str, str] = {}
 
 TEST_DATA_DIR = Path(__file__).resolve().parents[1] / "test"
 
@@ -88,6 +89,10 @@ class InputFileEditRequest(BaseModel):
     value: float
 
 
+class DeleteInputFileResponse(BaseModel):
+    deleted: bool
+
+
 def _infer_date_column(df: pd.DataFrame) -> str:
     best_column = df.columns[0]
     best_score = -1.0
@@ -112,6 +117,7 @@ def _load_input_files() -> None:
     INPUT_FILES.clear()
     INPUT_FILE_COLUMNS.clear()
     INPUT_FILE_SERIES.clear()
+    INPUT_FILE_FORMAT.clear()
     if not TEST_DATA_DIR.exists():
         return
     for path in sorted(TEST_DATA_DIR.glob("*.csv")):
@@ -123,11 +129,12 @@ def _load_input_files() -> None:
         INPUT_FILES[path.name] = parsed
         INPUT_FILE_COLUMNS[path.name] = parsed.columns.tolist()
         INPUT_FILE_SERIES[path.name] = parsed.index.astype(str).tolist()
+        INPUT_FILE_FORMAT[path.name] = "csv"
 
 
 def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -> List[float | None]:
     if series_name not in df.index:
-        raise HTTPException(status_code=400, detail=f"Unknown series name: {series_name}")
+        return [None for _ in columns]
     row = df.loc[series_name].reindex(columns)
     values: List[float | None] = []
     for value in row.tolist():
@@ -156,6 +163,16 @@ def _slice_columns(
     if start_idx > end_idx:
         start_idx, end_idx = end_idx, start_idx
     return columns[start_idx : end_idx + 1]
+
+
+def _merge_columns(base: List[str], additions: List[str]) -> List[str]:
+    merged = list(base)
+    seen = set(base)
+    for label in additions:
+        if label not in seen:
+            merged.append(label)
+            seen.add(label)
+    return merged
 
 
 def _prepare_preview(df: pd.DataFrame, limit: int = 20) -> List[Dict[str, Any]]:
@@ -221,6 +238,8 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
     columns = INPUT_FILE_COLUMNS.get(primary_file, [])
     if not columns:
         raise HTTPException(status_code=400, detail="No columns available for selected file")
+    for file_id in request.files[1:]:
+        columns = _merge_columns(columns, INPUT_FILE_COLUMNS.get(file_id, []))
     columns = _slice_columns(columns, request.start_label, request.end_label)
 
     series_payload = []
@@ -236,6 +255,7 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
 async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResponse:
     content = await file.read()
     filename = file.filename or "uploaded.csv"
+    file_format = "xlsx" if filename.endswith(".xlsx") else "csv"
     try:
         if filename.endswith(".xlsx"):
             df = pd.read_excel(io.BytesIO(content))
@@ -251,6 +271,7 @@ async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResp
     INPUT_FILES[file_id] = parsed
     INPUT_FILE_COLUMNS[file_id] = parsed.columns.tolist()
     INPUT_FILE_SERIES[file_id] = parsed.index.astype(str).tolist()
+    INPUT_FILE_FORMAT[file_id] = file_format
     metadata = InputFileMetadata(
         id=file_id,
         name=file_id,
@@ -271,6 +292,44 @@ def edit_input_file(request: InputFileEditRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Unknown label")
     df.at[request.series_name, request.label] = request.value
     return {"status": "ok"}
+
+
+@app.delete("/api/input-files/{file_id}", response_model=DeleteInputFileResponse)
+def delete_input_file(file_id: str) -> DeleteInputFileResponse:
+    if file_id not in INPUT_FILES:
+        raise HTTPException(status_code=404, detail="Input file not found")
+    INPUT_FILES.pop(file_id, None)
+    INPUT_FILE_COLUMNS.pop(file_id, None)
+    INPUT_FILE_SERIES.pop(file_id, None)
+    INPUT_FILE_FORMAT.pop(file_id, None)
+    return DeleteInputFileResponse(deleted=True)
+
+
+@app.get("/api/input-files/{file_id}/download")
+def download_input_file(file_id: str) -> StreamingResponse:
+    df = INPUT_FILES.get(file_id)
+    if df is None:
+        raise HTTPException(status_code=404, detail="Input file not found")
+    file_format = INPUT_FILE_FORMAT.get(file_id, "csv")
+    export_df = df.reset_index()
+    if file_format == "xlsx":
+        buffer = io.BytesIO()
+        export_df.to_excel(buffer, index=False)
+        buffer.seek(0)
+        headers = {"Content-Disposition": f"attachment; filename={file_id}"}
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers,
+        )
+    buffer = io.StringIO()
+    export_df.to_csv(buffer, index=False)
+    headers = {"Content-Disposition": f"attachment; filename={file_id}"}
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers=headers,
+    )
 
 
 _load_input_files()

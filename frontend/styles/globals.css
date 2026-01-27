@@ -35,6 +35,10 @@ main {
   gap: 16px;
 }
 
+.file-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
 label {
   display: block;
   font-size: 14px;
@@ -67,6 +71,56 @@ button.ghost {
   background: transparent;
   border: 1px solid #c7c7d5;
   color: #1f2937;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.file-row label {
+  margin-bottom: 0;
+}
+
+.file-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.file-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ghost-button {
+  width: auto;
+  background: transparent;
+  border: 1px solid #c7c7d5;
+  color: #1f2937;
+  padding: 8px 12px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  min-width: 110px;
+}
+
+.action-download {
+  background: #e6f4ea;
+  border-color: #a5c8b0;
+  color: #2f5f3a;
+}
+
+.action-delete {
+  background: #f4e6e6;
+  border-color: #d1a6a6;
+  color: #7a2e2e;
 }
 
 .table {
