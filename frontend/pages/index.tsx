@@ -253,7 +253,7 @@ export default function Home() {
           <p className="notice">No input files found. Add CSVs to the test folder.</p>
         )}
         {inputFiles.length > 0 && (
-          <div className="grid">
+          <div className="grid file-grid">
             {inputFiles.map((file) => (
               <div className="file-row" key={file.id}>
                 <div className="file-label">

@@ -35,6 +35,10 @@ main {
   gap: 16px;
 }
 
+.file-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
 label {
   display: block;
   font-size: 14px;
@@ -73,6 +77,7 @@ button.ghost {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .file-row label {
