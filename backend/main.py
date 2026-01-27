@@ -134,7 +134,7 @@ def _load_input_files() -> None:
 
 def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -> List[float | None]:
     if series_name not in df.index:
-        raise HTTPException(status_code=400, detail=f"Unknown series name: {series_name}")
+        return [None for _ in columns]
     row = df.loc[series_name].reindex(columns)
     values: List[float | None] = []
     for value in row.tolist():
