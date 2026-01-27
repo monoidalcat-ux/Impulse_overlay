@@ -243,6 +243,35 @@ export default function Home() {
     }
   };
 
+  const handlePointClick = (event: {
+    points?: Array<{ curveNumber: number; pointNumber: number; y?: number | null }>;
+  }) => {
+    if (!plotResponse || !event.points || event.points.length === 0) return;
+    const point = event.points[0];
+    const traceIndex = point.curveNumber;
+    const pointIndex = point.pointNumber;
+    const currentValue = point.y ?? plotResponse.series[traceIndex]?.values?.[pointIndex] ?? "";
+    const input = window.prompt("Enter a new value for this datapoint:", String(currentValue ?? ""));
+    if (input === null) return;
+    const nextValue = Number(input);
+    if (Number.isNaN(nextValue)) {
+      setStatusMessage("Please enter a valid numeric value.");
+      return;
+    }
+    setPlotResponse((prev) => {
+      if (!prev) return prev;
+      const updated = {
+        labels: prev.labels,
+        series: prev.series.map((entry) => ({ ...entry }))
+      };
+      const target = updated.series[traceIndex];
+      if (!target) return prev;
+      target.values[pointIndex] = nextValue;
+      return updated;
+    });
+    void updateValue(plotResponse.series[traceIndex].file, plotResponse.labels[pointIndex], nextValue);
+  };
+
   return (
     <main>
       <h1>Impulse Overlay – Financial Time Series</h1>
@@ -380,20 +409,35 @@ export default function Home() {
                   fixedrange: true
                 },
                 yaxis: {
-                  fixedrange: false
+                  fixedrange: true
                 }
               }}
               config={{
                 editable: true,
                 edits: { shapePosition: true },
-                scrollZoom: false
+                scrollZoom: false,
+                doubleClick: false,
+                modeBarButtonsToRemove: [
+                  "zoom2d",
+                  "pan2d",
+                  "select2d",
+                  "lasso2d",
+                  "zoomIn2d",
+                  "zoomOut2d",
+                  "autoScale2d",
+                  "resetScale2d"
+                ]
               }}
               onUpdate={handlePlotUpdate}
+              onClick={handlePointClick}
             />
             {yearsOnAxis.length > 0 && (
               <p className="notice">Quarter spacing applied. Years shown: {yearsOnAxis.join(", ")}.</p>
             )}
-            <p className="notice">Drag points on the chart or edit values in the table below.</p>
+            <p className="notice">
+              Drag points on the chart, click a point to enter a value, or edit values in the table
+              below.
+            </p>
             <h4>Series values by file</h4>
             <table className="table">
               <thead>
