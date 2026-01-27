@@ -69,6 +69,25 @@ button.ghost {
   color: #1f2937;
 }
 
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.file-row label {
+  margin-bottom: 0;
+}
+
+button.ghost-button {
+  width: auto;
+  background: transparent;
+  border: 1px solid #c7c7d5;
+  color: #1f2937;
+  padding: 8px 12px;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;

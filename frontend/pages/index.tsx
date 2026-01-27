@@ -26,6 +26,12 @@ type PlotResponse = {
   }[];
 };
 
+type QuarterLabel = {
+  label: string;
+  year: string;
+  quarter: string;
+};
+
 const API_BASE = "http://localhost:8000";
 
 export default function Home() {
@@ -37,6 +43,34 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [startLabel, setStartLabel] = useState<string>("");
   const [endLabel, setEndLabel] = useState<string>("");
+
+  const formatQuarterLabel = (label: string): QuarterLabel => {
+    const normalized = label.trim();
+    const match = normalized.match(/^(\d{4})[-\s]?Q([1-4])$/i);
+    if (match) {
+      return { label: `Q${match[2]} ${match[1]}`, year: match[1], quarter: match[2] };
+    }
+    return { label: normalized, year: normalized, quarter: "" };
+  };
+
+  const quarterLabels = useMemo(
+    () => plotResponse?.labels.map(formatQuarterLabel) ?? [],
+    [plotResponse]
+  );
+
+  const tickValues = useMemo(
+    () => plotResponse?.labels.map((_, index) => index) ?? [],
+    [plotResponse]
+  );
+
+  const tickText = useMemo(() => quarterLabels.map((entry) => entry.label), [quarterLabels]);
+  const yearsOnAxis = useMemo(
+    () =>
+      quarterLabels
+        .filter((entry, index, array) => entry.year && (index === 0 || entry.year !== array[index - 1].year))
+        .map((entry) => entry.year),
+    [quarterLabels]
+  );
 
   const loadFiles = async () => {
     const response = await fetch(`${API_BASE}/api/input-files`);
@@ -58,7 +92,7 @@ export default function Home() {
   const plotData = useMemo(() => {
     if (!plotResponse) return [];
     return plotResponse.series.map((seriesEntry) => ({
-      x: plotResponse.labels,
+      x: plotResponse.labels.map((_, index) => index),
       y: seriesEntry.values,
       type: "scatter",
       mode: "lines+markers",
@@ -136,6 +170,12 @@ export default function Home() {
     setPlotResponse(payload);
   };
 
+  useEffect(() => {
+    if (!plotResponse || !selectedSeries || selectedFiles.length === 0) return;
+    void fetchPlot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSeries, selectedFiles, startLabel, endLabel]);
+
   const updateValue = async (fileId: string, label: string, value: number) => {
     const response = await fetch(`${API_BASE}/api/input-files/edit`, {
       method: "POST",
@@ -150,7 +190,32 @@ export default function Home() {
     if (!response.ok) {
       const error = await response.json();
       setStatusMessage(error.detail ?? "Unable to update value.");
+      return;
     }
+    if (plotResponse) {
+      await fetchPlot();
+    }
+  };
+
+  const deleteInputFile = async (fileId: string) => {
+    const response = await fetch(`${API_BASE}/api/input-files/${fileId}`, {
+      method: "DELETE"
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      setStatusMessage(error.detail ?? "Unable to delete file.");
+      return;
+    }
+    await loadFiles();
+    setSelectedFiles((prev) => prev.filter((item) => item !== fileId));
+    setPlotResponse((prev) => {
+      if (!prev) return prev;
+      const updatedSeries = prev.series.filter((entry) => entry.file !== fileId);
+      return updatedSeries.length
+        ? { labels: prev.labels, series: updatedSeries }
+        : null;
+    });
+    setStatusMessage(`Removed ${fileId}.`);
   };
 
   const handlePlotUpdate = (figure: { data?: { y?: Array<number | null> }[] }) => {
@@ -190,14 +255,23 @@ export default function Home() {
         {inputFiles.length > 0 && (
           <div className="grid">
             {inputFiles.map((file) => (
-              <label key={file.id}>
-                <input
-                  type="checkbox"
-                  checked={selectedFiles.includes(file.id)}
-                  onChange={() => handleFileToggle(file.id)}
-                />
-                {" "}{file.name} ({file.series.length} series)
-              </label>
+              <div className="file-row" key={file.id}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selectedFiles.includes(file.id)}
+                    onChange={() => handleFileToggle(file.id)}
+                  />
+                  {" "}{file.name} ({file.series.length} series)
+                </label>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => void deleteInputFile(file.id)}
+                >
+                  Delete
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -261,13 +335,23 @@ export default function Home() {
               layout={{
                 title: `Series: ${selectedSeries}`,
                 height: 520,
-                margin: { t: 50, r: 30, l: 50, b: 40 },
+                margin: { t: 50, r: 30, l: 50, b: 80 },
                 hovermode: "closest",
-                dragmode: "closest"
+                dragmode: "closest",
+                xaxis: {
+                  tickmode: "array",
+                  tickvals: tickValues,
+                  ticktext: tickText,
+                  tickangle: -45,
+                  automargin: true
+                }
               }}
               config={{ editable: true }}
               onUpdate={handlePlotUpdate}
             />
+            {yearsOnAxis.length > 0 && (
+              <p className="notice">Quarter spacing applied. Years shown: {yearsOnAxis.join(", ")}.</p>
+            )}
             <p className="notice">Drag points on the chart or edit values in the table below.</p>
             <h4>Series values by file</h4>
             <table className="table">

@@ -88,6 +88,10 @@ class InputFileEditRequest(BaseModel):
     value: float
 
 
+class DeleteInputFileResponse(BaseModel):
+    deleted: bool
+
+
 def _infer_date_column(df: pd.DataFrame) -> str:
     best_column = df.columns[0]
     best_score = -1.0
@@ -271,6 +275,16 @@ def edit_input_file(request: InputFileEditRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Unknown label")
     df.at[request.series_name, request.label] = request.value
     return {"status": "ok"}
+
+
+@app.delete("/api/input-files/{file_id}", response_model=DeleteInputFileResponse)
+def delete_input_file(file_id: str) -> DeleteInputFileResponse:
+    if file_id not in INPUT_FILES:
+        raise HTTPException(status_code=404, detail="Input file not found")
+    INPUT_FILES.pop(file_id, None)
+    INPUT_FILE_COLUMNS.pop(file_id, None)
+    INPUT_FILE_SERIES.pop(file_id, None)
+    return DeleteInputFileResponse(deleted=True)
 
 
 _load_input_files()
