@@ -400,7 +400,7 @@ export default function Home() {
           <div>
             <label>&nbsp;</label>
             <button onClick={fetchPlot} type="button">
-              Load plot
+              Plot
             </button>
           </div>
         </div>
