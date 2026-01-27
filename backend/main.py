@@ -4,6 +4,7 @@ import io
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -37,6 +38,7 @@ INPUT_FILES: Dict[str, pd.DataFrame] = {}
 INPUT_FILE_COLUMNS: Dict[str, List[str]] = {}
 INPUT_FILE_SERIES: Dict[str, List[str]] = {}
 INPUT_FILE_FORMAT: Dict[str, str] = {}
+INPUT_FILE_METADATA: Dict[str, pd.DataFrame] = {}
 
 TEST_DATA_DIR = Path(__file__).resolve().parents[1] / "test"
 
@@ -105,12 +107,36 @@ def _infer_date_column(df: pd.DataFrame) -> str:
     return best_column
 
 
-def _parse_input_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or "Name" not in df.columns:
-        raise HTTPException(status_code=400, detail="Input file must include a Name column")
-    parsed = df.set_index("Name")
-    parsed.columns = [str(col) for col in parsed.columns]
-    return parsed
+TIME_COLUMN_PATTERN = re.compile(r"^\d{4}\.\d+$")
+
+
+def _parse_input_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, List[str], pd.DataFrame]:
+    if df.empty:
+        raise HTTPException(status_code=400, detail="Input file must include at least one row")
+    normalized = df.copy()
+    normalized.columns = [str(col).strip() for col in normalized.columns]
+    if "Mnemonic" not in normalized.columns:
+        raise HTTPException(status_code=400, detail="Input file must include a Mnemonic column")
+    time_columns = [
+        column
+        for column in normalized.columns
+        if column != "Mnemonic" and TIME_COLUMN_PATTERN.match(column)
+    ]
+    if not time_columns:
+        raise HTTPException(
+            status_code=400,
+            detail="Input file must include timestamp columns like 2022.1",
+        )
+    metadata_columns = [
+        column
+        for column in normalized.columns
+        if column not in time_columns and column != "Mnemonic"
+    ]
+    parsed = normalized.set_index("Mnemonic")
+    metadata_df = (
+        parsed[metadata_columns].copy() if metadata_columns else pd.DataFrame(index=parsed.index)
+    )
+    return parsed, time_columns, metadata_df
 
 
 def _load_input_files() -> None:
@@ -118,18 +144,20 @@ def _load_input_files() -> None:
     INPUT_FILE_COLUMNS.clear()
     INPUT_FILE_SERIES.clear()
     INPUT_FILE_FORMAT.clear()
+    INPUT_FILE_METADATA.clear()
     if not TEST_DATA_DIR.exists():
         return
     for path in sorted(TEST_DATA_DIR.glob("*.csv")):
         df = pd.read_csv(path)
         try:
-            parsed = _parse_input_dataframe(df)
+            parsed, time_columns, metadata_df = _parse_input_dataframe(df)
         except HTTPException:
             continue
         INPUT_FILES[path.name] = parsed
-        INPUT_FILE_COLUMNS[path.name] = parsed.columns.tolist()
+        INPUT_FILE_COLUMNS[path.name] = time_columns
         INPUT_FILE_SERIES[path.name] = parsed.index.astype(str).tolist()
         INPUT_FILE_FORMAT[path.name] = "csv"
+        INPUT_FILE_METADATA[path.name] = metadata_df
 
 
 def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -> List[float | None]:
@@ -143,6 +171,29 @@ def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -
         else:
             values.append(float(value))
     return values
+
+
+def _get_series_metadata(series_name: str, file_ids: List[str]) -> Dict[str, str]:
+    for file_id in file_ids:
+        metadata_df = INPUT_FILE_METADATA.get(file_id)
+        if metadata_df is None or metadata_df.empty:
+            continue
+        if series_name not in metadata_df.index:
+            continue
+        row = metadata_df.loc[series_name]
+        if isinstance(row, pd.DataFrame):
+            row = row.iloc[0]
+        metadata: Dict[str, str] = {}
+        for column in metadata_df.columns:
+            value = row[column]
+            if pd.isna(value):
+                continue
+            text = str(value).strip()
+            if text:
+                metadata[column] = text
+        if metadata:
+            return metadata
+    return {}
 
 
 def _slice_columns(
@@ -247,8 +298,9 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
         df = INPUT_FILES[file_id]
         values = _get_series_values(df, request.series_name, columns)
         series_payload.append({"file": file_id, "values": values})
+    metadata = _get_series_metadata(request.series_name, request.files)
 
-    return {"labels": columns, "series": series_payload}
+    return {"labels": columns, "series": series_payload, "metadata": metadata}
 
 
 @app.post("/api/input-files/upload", response_model=InputFileUploadResponse)
@@ -264,14 +316,15 @@ async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResp
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc}") from exc
 
-    parsed = _parse_input_dataframe(df)
+    parsed, time_columns, metadata_df = _parse_input_dataframe(df)
     file_id = filename
     if file_id in INPUT_FILES:
         file_id = f"{Path(filename).stem}-{uuid.uuid4().hex[:8]}{Path(filename).suffix}"
     INPUT_FILES[file_id] = parsed
-    INPUT_FILE_COLUMNS[file_id] = parsed.columns.tolist()
+    INPUT_FILE_COLUMNS[file_id] = time_columns
     INPUT_FILE_SERIES[file_id] = parsed.index.astype(str).tolist()
     INPUT_FILE_FORMAT[file_id] = file_format
+    INPUT_FILE_METADATA[file_id] = metadata_df
     metadata = InputFileMetadata(
         id=file_id,
         name=file_id,
@@ -288,7 +341,8 @@ def edit_input_file(request: InputFileEditRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Input file not found")
     if request.series_name not in df.index:
         raise HTTPException(status_code=400, detail="Unknown series name")
-    if request.label not in df.columns:
+    time_columns = INPUT_FILE_COLUMNS.get(request.file_id, [])
+    if request.label not in time_columns:
         raise HTTPException(status_code=400, detail="Unknown label")
     df.at[request.series_name, request.label] = request.value
     return {"status": "ok"}
@@ -302,6 +356,7 @@ def delete_input_file(file_id: str) -> DeleteInputFileResponse:
     INPUT_FILE_COLUMNS.pop(file_id, None)
     INPUT_FILE_SERIES.pop(file_id, None)
     INPUT_FILE_FORMAT.pop(file_id, None)
+    INPUT_FILE_METADATA.pop(file_id, None)
     return DeleteInputFileResponse(deleted=True)
 
 
