@@ -1,0 +1,119 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", system-ui, sans-serif;
+  background: #f7f7fb;
+  color: #1a1a1a;
+}
+
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.section-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+label {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+input,
+select,
+button {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #d6d6e7;
+  font-size: 14px;
+}
+
+button {
+  cursor: pointer;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+}
+
+button.secondary {
+  background: #e0e7ff;
+  color: #312e81;
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid #c7c7d5;
+  color: #1f2937;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid #ececf3;
+  padding: 8px;
+  text-align: left;
+}
+
+.quick-range {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  width: 320px;
+}
+
+.modal h3 {
+  margin-top: 0;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.notice {
+  font-size: 13px;
+  color: #4b5563;
+}
