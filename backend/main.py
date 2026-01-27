@@ -213,9 +213,6 @@ def list_input_files() -> InputFilesResponse:
 def plot_series(request: PlotRequest) -> Dict[str, Any]:
     if not request.files:
         raise HTTPException(status_code=400, detail="Select at least one file to plot")
-    if len(request.files) > 2:
-        raise HTTPException(status_code=400, detail="Select up to two files to plot")
-
     missing = [file_id for file_id in request.files if file_id not in INPUT_FILES]
     if missing:
         raise HTTPException(status_code=404, detail=f"Unknown files: {', '.join(missing)}")

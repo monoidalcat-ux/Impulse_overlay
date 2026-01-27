@@ -90,10 +90,6 @@ export default function Home() {
       if (prev.includes(fileId)) {
         return prev.filter((item) => item !== fileId);
       }
-      if (prev.length >= 2) {
-        setStatusMessage("Select up to two files to compare at once.");
-        return prev;
-      }
       return [...prev, fileId];
     });
   };
@@ -206,8 +202,8 @@ export default function Home() {
           </div>
         )}
         <p className="notice">
-          Choose up to two files to plot simultaneously. Each row in the CSV is treated as a
-          time-series entry with the first column as the name.
+          Choose files to plot simultaneously. Each row in the CSV is treated as a time-series
+          entry with the first column as the name.
         </p>
       </section>
 
