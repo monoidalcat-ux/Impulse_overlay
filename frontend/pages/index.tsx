@@ -53,6 +53,29 @@ export default function Home() {
     return { label: normalized, year: normalized, quarter: "" };
   };
 
+  const compareLabels = (left: string, right: string) => {
+    const leftQuarter = formatQuarterLabel(left);
+    const rightQuarter = formatQuarterLabel(right);
+    if (leftQuarter.quarter && rightQuarter.quarter) {
+      const leftYear = Number(leftQuarter.year);
+      const rightYear = Number(rightQuarter.year);
+      if (!Number.isNaN(leftYear) && !Number.isNaN(rightYear) && leftYear !== rightYear) {
+        return leftYear - rightYear;
+      }
+      const leftQuarterNumber = Number(leftQuarter.quarter);
+      const rightQuarterNumber = Number(rightQuarter.quarter);
+      if (!Number.isNaN(leftQuarterNumber) && !Number.isNaN(rightQuarterNumber)) {
+        return leftQuarterNumber - rightQuarterNumber;
+      }
+    }
+    const leftDate = Date.parse(left);
+    const rightDate = Date.parse(right);
+    if (!Number.isNaN(leftDate) && !Number.isNaN(rightDate) && leftDate !== rightDate) {
+      return leftDate - rightDate;
+    }
+    return left.localeCompare(right);
+  };
+
   const quarterLabels = useMemo(
     () => plotResponse?.labels.map(formatQuarterLabel) ?? [],
     [plotResponse]
@@ -109,8 +132,12 @@ export default function Home() {
 
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
-    const primary = inputFiles.find((file) => file.id === selectedFiles[0]);
-    return primary?.columns ?? [];
+    const merged = new Set<string>();
+    selectedFiles.forEach((fileId) => {
+      const file = inputFiles.find((entry) => entry.id === fileId);
+      file?.columns.forEach((label) => merged.add(label));
+    });
+    return Array.from(merged).sort(compareLabels);
   }, [inputFiles, selectedFiles]);
 
   useEffect(() => {
@@ -416,6 +443,7 @@ export default function Home() {
             <p className="notice">
               Click a point to enter a value, or edit values in the table below.
             </p>
+            <p className="notice">Tip: click a legend item to isolate a track.</p>
             <h4>Series values by file</h4>
             <table className="table">
               <thead>
