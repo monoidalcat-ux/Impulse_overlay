@@ -256,29 +256,31 @@ export default function Home() {
           <div className="grid">
             {inputFiles.map((file) => (
               <div className="file-row" key={file.id}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={selectedFiles.includes(file.id)}
-                    onChange={() => handleFileToggle(file.id)}
-                  />
-                  {" "}{file.name} ({file.series.length} series)
-                </label>
-                <div className="file-actions">
-                  <a
-                    className="ghost-button"
-                    href={`${API_BASE}/api/input-files/${file.id}/download`}
-                    download
-                  >
-                    Download
-                  </a>
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() => void deleteInputFile(file.id)}
-                  >
-                    Delete
-                  </button>
+                <div className="file-label">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selectedFiles.includes(file.id)}
+                      onChange={() => handleFileToggle(file.id)}
+                    />
+                    {" "}{file.name} ({file.series.length} series)
+                  </label>
+                  <div className="file-actions">
+                    <a
+                      className="ghost-button"
+                      href={`${API_BASE}/api/input-files/${file.id}/download`}
+                      download
+                    >
+                      Download
+                    </a>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => void deleteInputFile(file.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -295,39 +297,60 @@ export default function Home() {
         <div className="grid">
           <div>
             <label>Series name</label>
-            <select
+            <input
+              className="search-input"
+              list="series-options"
               value={selectedSeries}
               onChange={(event) => setSelectedSeries(event.target.value)}
-            >
+              onBlur={() => {
+                if (!seriesNames.includes(selectedSeries) && seriesNames[0]) {
+                  setSelectedSeries(seriesNames[0]);
+                }
+              }}
+            />
+            <datalist id="series-options">
               {seriesNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
+                <option key={name} value={name} />
               ))}
-            </select>
+            </datalist>
           </div>
           <div>
             <label>Start label</label>
-            <select
+            <input
+              className="search-input"
+              list="start-label-options"
               value={startLabel}
               onChange={(event) => setStartLabel(event.target.value)}
-            >
+              onBlur={() => {
+                if (!availableLabels.includes(startLabel) && availableLabels[0]) {
+                  setStartLabel(availableLabels[0]);
+                }
+              }}
+            />
+            <datalist id="start-label-options">
               {availableLabels.map((label) => (
-                <option key={label} value={label}>
-                  {label}
-                </option>
+                <option key={label} value={label} />
               ))}
-            </select>
+            </datalist>
           </div>
           <div>
             <label>End label</label>
-            <select value={endLabel} onChange={(event) => setEndLabel(event.target.value)}>
+            <input
+              className="search-input"
+              list="end-label-options"
+              value={endLabel}
+              onChange={(event) => setEndLabel(event.target.value)}
+              onBlur={() => {
+                if (!availableLabels.includes(endLabel) && availableLabels.length) {
+                  setEndLabel(availableLabels[availableLabels.length - 1]);
+                }
+              }}
+            />
+            <datalist id="end-label-options">
               {availableLabels.map((label) => (
-                <option key={label} value={label}>
-                  {label}
-                </option>
+                <option key={label} value={label} />
               ))}
-            </select>
+            </datalist>
           </div>
           <div>
             <label>&nbsp;</label>
