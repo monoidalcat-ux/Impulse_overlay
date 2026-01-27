@@ -91,14 +91,20 @@ export default function Home() {
 
   const plotData = useMemo(() => {
     if (!plotResponse) return [];
-    return plotResponse.series.map((seriesEntry) => ({
-      x: plotResponse.labels.map((_, index) => index),
-      y: seriesEntry.values,
-      type: "scatter",
-      mode: "lines+markers",
-      name: seriesEntry.file,
-      marker: { size: 8 }
-    }));
+    return plotResponse.series.map((seriesEntry) => {
+      const alignedValues = plotResponse.labels.map(
+        (_, index) => seriesEntry.values[index] ?? null
+      );
+      return {
+        x: plotResponse.labels.map((_, index) => index),
+        y: alignedValues,
+        type: "scatter",
+        mode: "lines+markers",
+        name: seriesEntry.file,
+        marker: { size: 8 },
+        connectgaps: false
+      };
+    });
   }, [plotResponse]);
 
   const availableLabels = useMemo(() => {
@@ -217,30 +223,6 @@ export default function Home() {
         : null;
     });
     setStatusMessage(`Removed ${fileId}.`);
-  };
-
-  const handlePlotUpdate = (figure: { data?: { y?: Array<number | null> }[] }) => {
-    if (!plotResponse || !figure.data) return;
-    const updates: PlotResponse = {
-      labels: plotResponse.labels,
-      series: plotResponse.series.map((entry) => ({ ...entry }))
-    };
-    let hasChanges = false;
-    figure.data.forEach((trace, traceIdx) => {
-      const updatedValues = trace?.y ?? [];
-      const current = plotResponse.series[traceIdx]?.values ?? [];
-      updatedValues.forEach((value, idx) => {
-        if (value === undefined || current[idx] === value) return;
-        const numericValue = value === null ? null : Number(value);
-        if (numericValue === null || Number.isNaN(numericValue)) return;
-        updates.series[traceIdx].values[idx] = numericValue;
-        hasChanges = true;
-        void updateValue(plotResponse.series[traceIdx].file, plotResponse.labels[idx], numericValue);
-      });
-    });
-    if (hasChanges) {
-      setPlotResponse(updates);
-    }
   };
 
   const handlePointClick = (event: {
@@ -399,7 +381,7 @@ export default function Home() {
                 height: 520,
                 margin: { t: 50, r: 30, l: 50, b: 80 },
                 hovermode: "closest",
-                dragmode: "closest",
+                dragmode: false,
                 xaxis: {
                   tickmode: "array",
                   tickvals: tickValues,
@@ -413,8 +395,6 @@ export default function Home() {
                 }
               }}
               config={{
-                editable: true,
-                edits: { shapePosition: true },
                 scrollZoom: false,
                 doubleClick: false,
                 modeBarButtonsToRemove: [
@@ -428,15 +408,13 @@ export default function Home() {
                   "resetScale2d"
                 ]
               }}
-              onUpdate={handlePlotUpdate}
               onClick={handlePointClick}
             />
             {yearsOnAxis.length > 0 && (
               <p className="notice">Quarter spacing applied. Years shown: {yearsOnAxis.join(", ")}.</p>
             )}
             <p className="notice">
-              Drag points on the chart, click a point to enter a value, or edit values in the table
-              below.
+              Click a point to enter a value, or edit values in the table below.
             </p>
             <h4>Series values by file</h4>
             <table className="table">
