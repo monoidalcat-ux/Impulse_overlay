@@ -24,6 +24,7 @@ type PlotResponse = {
     file: string;
     values: (number | null)[];
   }[];
+  metadata: Record<string, string>;
 };
 
 type QuarterLabel = {
@@ -128,6 +129,11 @@ export default function Home() {
         connectgaps: false
       };
     });
+  }, [plotResponse]);
+
+  const metadataEntries = useMemo(() => {
+    if (!plotResponse) return [];
+    return Object.entries(plotResponse.metadata ?? {}).filter(([, value]) => value.trim() !== "");
   }, [plotResponse]);
 
   const availableLabels = useMemo(() => {
@@ -327,7 +333,7 @@ export default function Home() {
         )}
         <p className="notice">
           Choose files to plot simultaneously. Each row in the CSV is treated as a time-series
-          entry with the first column as the name.
+          entry with the Mnemonic column as the name.
         </p>
       </section>
 
@@ -394,49 +400,68 @@ export default function Home() {
           <div>
             <label>&nbsp;</label>
             <button onClick={fetchPlot} type="button">
-              Load plot
+              Plot
             </button>
           </div>
         </div>
         {statusMessage && <p className="notice">{statusMessage}</p>}
         {plotResponse && (
           <>
-            <Plot
-              data={plotData}
-              layout={{
-                title: `Series: ${selectedSeries}`,
-                height: 520,
-                margin: { t: 50, r: 30, l: 50, b: 80 },
-                hovermode: "closest",
-                dragmode: false,
-                xaxis: {
-                  tickmode: "array",
-                  tickvals: tickValues,
-                  ticktext: tickText,
-                  tickangle: -45,
-                  automargin: true,
-                  fixedrange: true
-                },
-                yaxis: {
-                  fixedrange: true
-                }
-              }}
-              config={{
-                scrollZoom: false,
-                doubleClick: false,
-                modeBarButtonsToRemove: [
-                  "zoom2d",
-                  "pan2d",
-                  "select2d",
-                  "lasso2d",
-                  "zoomIn2d",
-                  "zoomOut2d",
-                  "autoScale2d",
-                  "resetScale2d"
-                ]
-              }}
-              onClick={handlePointClick}
-            />
+            <div className="plot-area">
+              <div className="plot-panel">
+                <Plot
+                  data={plotData}
+                  layout={{
+                    title: `Series: ${selectedSeries}`,
+                    height: 520,
+                    margin: { t: 50, r: 30, l: 50, b: 80 },
+                    hovermode: "closest",
+                    dragmode: false,
+                    xaxis: {
+                      tickmode: "array",
+                      tickvals: tickValues,
+                      ticktext: tickText,
+                      tickangle: -45,
+                      automargin: true,
+                      fixedrange: true
+                    },
+                    yaxis: {
+                      fixedrange: true
+                    }
+                  }}
+                  config={{
+                    scrollZoom: false,
+                    doubleClick: false,
+                    modeBarButtonsToRemove: [
+                      "zoom2d",
+                      "pan2d",
+                      "select2d",
+                      "lasso2d",
+                      "zoomIn2d",
+                      "zoomOut2d",
+                      "autoScale2d",
+                      "resetScale2d"
+                    ]
+                  }}
+                  onClick={handlePointClick}
+                />
+              </div>
+              <aside className="metadata-card">
+                <h4>Series metadata</h4>
+                {metadataEntries.length === 0 ? (
+                  <p className="notice">No metadata found for this series.</p>
+                ) : (
+                  <ul className="metadata-list">
+                    {metadataEntries.map(([key, value]) => (
+                      <li key={key}>
+                        <span>{key}</span>
+                        <strong>{value}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </aside>
+            </div>
             {yearsOnAxis.length > 0 && (
               <p className="notice">Quarter spacing applied. Years shown: {yearsOnAxis.join(", ")}.</p>
             )}
