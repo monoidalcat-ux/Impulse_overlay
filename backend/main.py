@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -32,6 +33,12 @@ class Dataset:
 
 DATASETS: Dict[str, Dataset] = {}
 
+INPUT_FILES: Dict[str, pd.DataFrame] = {}
+INPUT_FILE_COLUMNS: Dict[str, List[str]] = {}
+INPUT_FILE_SERIES: Dict[str, List[str]] = {}
+
+TEST_DATA_DIR = Path(__file__).resolve().parents[1] / "test"
+
 
 class SeriesRequest(BaseModel):
     date_column: str
@@ -51,6 +58,23 @@ class EditRequest(BaseModel):
     edits: List[EditItem]
 
 
+class InputFileMetadata(BaseModel):
+    id: str
+    name: str
+    series: List[str]
+    columns: List[str]
+
+
+class InputFilesResponse(BaseModel):
+    files: List[InputFileMetadata]
+    series_names: List[str]
+
+
+class PlotRequest(BaseModel):
+    series_name: str
+    files: List[str]
+
+
 def _infer_date_column(df: pd.DataFrame) -> str:
     best_column = df.columns[0]
     best_score = -1.0
@@ -61,6 +85,36 @@ def _infer_date_column(df: pd.DataFrame) -> str:
             best_score = score
             best_column = column
     return best_column
+
+
+def _load_input_files() -> None:
+    INPUT_FILES.clear()
+    INPUT_FILE_COLUMNS.clear()
+    INPUT_FILE_SERIES.clear()
+    if not TEST_DATA_DIR.exists():
+        return
+    for path in sorted(TEST_DATA_DIR.glob("*.csv")):
+        df = pd.read_csv(path)
+        if df.empty or "Name" not in df.columns:
+            continue
+        df = df.set_index("Name")
+        df.columns = [str(col) for col in df.columns]
+        INPUT_FILES[path.name] = df
+        INPUT_FILE_COLUMNS[path.name] = df.columns.tolist()
+        INPUT_FILE_SERIES[path.name] = df.index.astype(str).tolist()
+
+
+def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -> List[float | None]:
+    if series_name not in df.index:
+        raise HTTPException(status_code=400, detail=f"Unknown series name: {series_name}")
+    row = df.loc[series_name].reindex(columns)
+    values: List[float | None] = []
+    for value in row.tolist():
+        if pd.isna(value):
+            values.append(None)
+        else:
+            values.append(float(value))
+    return values
 
 
 def _prepare_preview(df: pd.DataFrame, limit: int = 20) -> List[Dict[str, Any]]:
@@ -96,6 +150,50 @@ def _serialize_series(df: pd.DataFrame, date_column: str, series: List[str]) -> 
     for name in series:
         payload[name] = df[name].tolist()
     return payload
+
+
+@app.get("/api/input-files", response_model=InputFilesResponse)
+def list_input_files() -> InputFilesResponse:
+    files: List[InputFileMetadata] = []
+    series_names: set[str] = set()
+    for file_id in sorted(INPUT_FILES.keys()):
+        metadata = InputFileMetadata(
+            id=file_id,
+            name=file_id,
+            series=INPUT_FILE_SERIES.get(file_id, []),
+            columns=INPUT_FILE_COLUMNS.get(file_id, []),
+        )
+        files.append(metadata)
+        series_names.update(metadata.series)
+    return InputFilesResponse(files=files, series_names=sorted(series_names))
+
+
+@app.post("/api/plot-series")
+def plot_series(request: PlotRequest) -> Dict[str, Any]:
+    if not request.files:
+        raise HTTPException(status_code=400, detail="Select at least one file to plot")
+    if len(request.files) > 2:
+        raise HTTPException(status_code=400, detail="Select up to two files to plot")
+
+    missing = [file_id for file_id in request.files if file_id not in INPUT_FILES]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Unknown files: {', '.join(missing)}")
+
+    primary_file = request.files[0]
+    columns = INPUT_FILE_COLUMNS.get(primary_file, [])
+    if not columns:
+        raise HTTPException(status_code=400, detail="No columns available for selected file")
+
+    series_payload = []
+    for file_id in request.files:
+        df = INPUT_FILES[file_id]
+        values = _get_series_values(df, request.series_name, columns)
+        series_payload.append({"file": file_id, "values": values})
+
+    return {"labels": columns, "series": series_payload}
+
+
+_load_input_files()
 
 
 @app.post("/api/upload")
