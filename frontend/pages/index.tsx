@@ -96,7 +96,8 @@ export default function Home() {
       y: seriesEntry.values,
       type: "scatter",
       mode: "lines+markers",
-      name: seriesEntry.file
+      name: seriesEntry.file,
+      marker: { size: 8 }
     }));
   }, [plotResponse]);
 
@@ -375,10 +376,18 @@ export default function Home() {
                   tickvals: tickValues,
                   ticktext: tickText,
                   tickangle: -45,
-                  automargin: true
+                  automargin: true,
+                  fixedrange: true
+                },
+                yaxis: {
+                  fixedrange: false
                 }
               }}
-              config={{ editable: true }}
+              config={{
+                editable: true,
+                edits: { shapePosition: true },
+                scrollZoom: false
+              }}
               onUpdate={handlePlotUpdate}
             />
             {yearsOnAxis.length > 0 && (
