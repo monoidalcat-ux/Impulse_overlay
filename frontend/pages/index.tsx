@@ -33,7 +33,14 @@ type QuarterLabel = {
   quarter: string;
 };
 
-type DisplayMode = "raw" | "quarterly_change" | "year_over_year" | "since_start";
+type DisplayMode =
+  | "raw"
+  | "quarterly_change"
+  | "quarterly_change_percent"
+  | "year_over_year"
+  | "year_over_year_percent"
+  | "since_start"
+  | "since_start_percent";
 
 const API_BASE = "http://localhost:8000";
 
@@ -45,14 +52,29 @@ const MODE_OPTIONS: Array<{ value: DisplayMode; label: string; description: stri
     description: "Change vs. the previous quarter."
   },
   {
+    value: "quarterly_change_percent",
+    label: "Quarterly change (%)",
+    description: "Percent change vs. the previous quarter."
+  },
+  {
     value: "year_over_year",
     label: "Year-over-year change",
     description: "Change vs. the same quarter in the prior year."
   },
   {
+    value: "year_over_year_percent",
+    label: "Year-over-year change (%)",
+    description: "Percent change vs. the same quarter in the prior year."
+  },
+  {
     value: "since_start",
     label: "Change vs. first quarter",
     description: "Change vs. the first selected quarter."
+  },
+  {
+    value: "since_start_percent",
+    label: "Change vs. first quarter (%)",
+    description: "Percent change vs. the first selected quarter."
   }
 ];
 
@@ -69,13 +91,26 @@ const deriveSeriesValues = (values: (number | null)[], mode: DisplayMode) => {
       if (index === 0 || !isNumericValue(array[index - 1])) return null;
       return value - array[index - 1]!;
     }
+    if (mode === "quarterly_change_percent") {
+      if (index === 0 || !isNumericValue(array[index - 1]) || array[index - 1] === 0) return null;
+      return ((value - array[index - 1]!) / array[index - 1]!) * 100;
+    }
     if (mode === "year_over_year") {
       if (index < 4 || !isNumericValue(array[index - 4])) return null;
       return value - array[index - 4]!;
     }
+    if (mode === "year_over_year_percent") {
+      if (index < 4 || !isNumericValue(array[index - 4]) || array[index - 4] === 0) return null;
+      return ((value - array[index - 4]!) / array[index - 4]!) * 100;
+    }
+    if (mode === "since_start") {
+      const baseline = array[0];
+      if (!isNumericValue(baseline)) return null;
+      return value - baseline;
+    }
     const baseline = array[0];
-    if (!isNumericValue(baseline)) return null;
-    return value - baseline;
+    if (!isNumericValue(baseline) || baseline === 0) return null;
+    return ((value - baseline) / baseline) * 100;
   });
 };
 
@@ -346,6 +381,13 @@ export default function Home() {
         return;
       }
       nextRawValue = prior + nextValue;
+    } else if (displayMode === "quarterly_change_percent") {
+      const prior = rawSeries.values[pointIndex - 1];
+      if (pointIndex === 0 || !isNumericValue(prior) || prior === 0) {
+        setStatusMessage("Quarterly percent change needs a non-zero previous value.");
+        return;
+      }
+      nextRawValue = prior * (1 + nextValue / 100);
     } else if (displayMode === "year_over_year") {
       const prior = rawSeries.values[pointIndex - 4];
       if (pointIndex < 4 || !isNumericValue(prior)) {
@@ -353,13 +395,27 @@ export default function Home() {
         return;
       }
       nextRawValue = prior + nextValue;
-    } else {
+    } else if (displayMode === "year_over_year_percent") {
+      const prior = rawSeries.values[pointIndex - 4];
+      if (pointIndex < 4 || !isNumericValue(prior) || prior === 0) {
+        setStatusMessage("Year-over-year percent change needs a non-zero value from four quarters earlier.");
+        return;
+      }
+      nextRawValue = prior * (1 + nextValue / 100);
+    } else if (displayMode === "since_start") {
       const baseline = rawSeries.values[0];
       if (!isNumericValue(baseline)) {
         setStatusMessage("Change vs. first quarter needs the first value to be set.");
         return;
       }
       nextRawValue = baseline + nextValue;
+    } else {
+      const baseline = rawSeries.values[0];
+      if (!isNumericValue(baseline) || baseline === 0) {
+        setStatusMessage("Percent change vs. first quarter needs a non-zero first value.");
+        return;
+      }
+      nextRawValue = baseline * (1 + nextValue / 100);
     }
     if (!isNumericValue(nextRawValue)) {
       setStatusMessage("Unable to calculate a new value for this mode.");
