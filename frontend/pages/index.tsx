@@ -592,7 +592,7 @@ export default function Home() {
             <p className="notice">Choose the Excel sheet to plot (Quarterly or Monthly).</p>
           </div>
           <div>
-            <label>Series name</label>
+            <label>Mnemonic</label>
             <input
               className="search-input"
               list="series-options"
@@ -613,7 +613,7 @@ export default function Home() {
         </div>
         <div className="grid">
           <div>
-            <label>Start label</label>
+            <label>Start</label>
             <input
               className="search-input"
               list="start-label-options"
@@ -632,7 +632,7 @@ export default function Home() {
             </datalist>
           </div>
           <div>
-            <label>End label</label>
+            <label>End</label>
             <input
               className="search-input"
               list="end-label-options"
