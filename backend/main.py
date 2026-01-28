@@ -34,11 +34,12 @@ class Dataset:
 
 DATASETS: Dict[str, Dataset] = {}
 
-INPUT_FILES: Dict[str, pd.DataFrame] = {}
-INPUT_FILE_COLUMNS: Dict[str, List[str]] = {}
-INPUT_FILE_SERIES: Dict[str, List[str]] = {}
+INPUT_FILES: Dict[str, Dict[str, pd.DataFrame]] = {}
+INPUT_FILE_COLUMNS: Dict[str, Dict[str, List[str]]] = {}
+INPUT_FILE_SERIES: Dict[str, Dict[str, List[str]]] = {}
 INPUT_FILE_FORMAT: Dict[str, str] = {}
-INPUT_FILE_METADATA: Dict[str, pd.DataFrame] = {}
+INPUT_FILE_METADATA: Dict[str, Dict[str, pd.DataFrame]] = {}
+INPUT_FILE_SHEETS: Dict[str, List[str]] = {}
 
 TEST_DATA_DIR = Path(__file__).resolve().parents[1] / "test"
 
@@ -64,8 +65,9 @@ class EditRequest(BaseModel):
 class InputFileMetadata(BaseModel):
     id: str
     name: str
-    series: List[str]
-    columns: List[str]
+    sheets: List[str]
+    series_by_sheet: Dict[str, List[str]]
+    columns_by_sheet: Dict[str, List[str]]
 
 
 class InputFilesResponse(BaseModel):
@@ -78,6 +80,7 @@ class PlotRequest(BaseModel):
     files: List[str]
     start_label: Optional[str] = None
     end_label: Optional[str] = None
+    sheet_name: Optional[str] = None
 
 
 class InputFileUploadResponse(BaseModel):
@@ -89,6 +92,7 @@ class InputFileEditRequest(BaseModel):
     series_name: str
     label: str
     value: float
+    sheet_name: Optional[str] = None
 
 
 class DeleteInputFileResponse(BaseModel):
@@ -107,7 +111,10 @@ def _infer_date_column(df: pd.DataFrame) -> str:
     return best_column
 
 
-TIME_COLUMN_PATTERN = re.compile(r"^\d{4}\.\d+$")
+TIME_COLUMN_PATTERN = re.compile(r"^(?:\d{4}\.\d+|\d{4}M\d{1,2})$")
+
+DEFAULT_SHEET = "Quarterly"
+MONTHLY_SHEET = "Monthly"
 
 
 def _parse_input_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, List[str], pd.DataFrame]:
@@ -125,7 +132,7 @@ def _parse_input_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, List[str], p
     if not time_columns:
         raise HTTPException(
             status_code=400,
-            detail="Input file must include timestamp columns like 2022.1",
+            detail="Input file must include timestamp columns like 2022.1 or 2000M1",
         )
     metadata_columns = [
         column
@@ -145,19 +152,62 @@ def _load_input_files() -> None:
     INPUT_FILE_SERIES.clear()
     INPUT_FILE_FORMAT.clear()
     INPUT_FILE_METADATA.clear()
+    INPUT_FILE_SHEETS.clear()
     if not TEST_DATA_DIR.exists():
         return
-    for path in sorted(TEST_DATA_DIR.glob("*.csv")):
-        df = pd.read_csv(path)
+    for path in sorted(list(TEST_DATA_DIR.glob("*.csv")) + list(TEST_DATA_DIR.glob("*.xlsx"))):
+        if path.suffix.lower() == ".xlsx":
+            try:
+                sheets = pd.read_excel(path, sheet_name=None)
+            except Exception:
+                continue
+            parsed_sheets = _parse_excel_sheets(sheets)
+            if not parsed_sheets:
+                continue
+            _register_input_file(path.name, parsed_sheets, "xlsx")
+        else:
+            df = pd.read_csv(path)
+            try:
+                parsed, time_columns, metadata_df = _parse_input_dataframe(df)
+            except HTTPException:
+                continue
+            _register_input_file(
+                path.name,
+                {DEFAULT_SHEET: (parsed, time_columns, metadata_df)},
+                "csv",
+            )
+
+
+def _parse_excel_sheets(
+    sheets: Dict[str, pd.DataFrame],
+) -> Dict[str, tuple[pd.DataFrame, List[str], pd.DataFrame]]:
+    parsed_sheets: Dict[str, tuple[pd.DataFrame, List[str], pd.DataFrame]] = {}
+    for sheet_name in [DEFAULT_SHEET, MONTHLY_SHEET]:
+        if sheet_name not in sheets:
+            continue
         try:
-            parsed, time_columns, metadata_df = _parse_input_dataframe(df)
+            parsed_sheets[sheet_name] = _parse_input_dataframe(sheets[sheet_name])
         except HTTPException:
             continue
-        INPUT_FILES[path.name] = parsed
-        INPUT_FILE_COLUMNS[path.name] = time_columns
-        INPUT_FILE_SERIES[path.name] = parsed.index.astype(str).tolist()
-        INPUT_FILE_FORMAT[path.name] = "csv"
-        INPUT_FILE_METADATA[path.name] = metadata_df
+    return parsed_sheets
+
+
+def _register_input_file(
+    file_id: str,
+    parsed_sheets: Dict[str, tuple[pd.DataFrame, List[str], pd.DataFrame]],
+    file_format: str,
+) -> None:
+    INPUT_FILES[file_id] = {}
+    INPUT_FILE_COLUMNS[file_id] = {}
+    INPUT_FILE_SERIES[file_id] = {}
+    INPUT_FILE_METADATA[file_id] = {}
+    for sheet_name, (parsed, time_columns, metadata_df) in parsed_sheets.items():
+        INPUT_FILES[file_id][sheet_name] = parsed
+        INPUT_FILE_COLUMNS[file_id][sheet_name] = time_columns
+        INPUT_FILE_SERIES[file_id][sheet_name] = parsed.index.astype(str).tolist()
+        INPUT_FILE_METADATA[file_id][sheet_name] = metadata_df
+    INPUT_FILE_FORMAT[file_id] = file_format
+    INPUT_FILE_SHEETS[file_id] = sorted(parsed_sheets.keys())
 
 
 def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -> List[float | None]:
@@ -173,9 +223,11 @@ def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -
     return values
 
 
-def _get_series_metadata(series_name: str, file_ids: List[str]) -> Dict[str, str]:
+def _get_series_metadata(
+    series_name: str, file_ids: List[str], sheet_name: str
+) -> Dict[str, str]:
     for file_id in file_ids:
-        metadata_df = INPUT_FILE_METADATA.get(file_id)
+        metadata_df = INPUT_FILE_METADATA.get(file_id, {}).get(sheet_name)
         if metadata_df is None or metadata_df.empty:
             continue
         if series_name not in metadata_df.index:
@@ -266,14 +318,18 @@ def list_input_files() -> InputFilesResponse:
     files: List[InputFileMetadata] = []
     series_names: set[str] = set()
     for file_id in sorted(INPUT_FILES.keys()):
+        series_by_sheet = INPUT_FILE_SERIES.get(file_id, {})
+        columns_by_sheet = INPUT_FILE_COLUMNS.get(file_id, {})
         metadata = InputFileMetadata(
             id=file_id,
             name=file_id,
-            series=INPUT_FILE_SERIES.get(file_id, []),
-            columns=INPUT_FILE_COLUMNS.get(file_id, []),
+            sheets=INPUT_FILE_SHEETS.get(file_id, [DEFAULT_SHEET]),
+            series_by_sheet=series_by_sheet,
+            columns_by_sheet=columns_by_sheet,
         )
         files.append(metadata)
-        series_names.update(metadata.series)
+        for series in series_by_sheet.values():
+            series_names.update(series)
     return InputFilesResponse(files=files, series_names=sorted(series_names))
 
 
@@ -285,20 +341,27 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
     if missing:
         raise HTTPException(status_code=404, detail=f"Unknown files: {', '.join(missing)}")
 
+    sheet_name = request.sheet_name or DEFAULT_SHEET
     primary_file = request.files[0]
-    columns = INPUT_FILE_COLUMNS.get(primary_file, [])
+    columns = INPUT_FILE_COLUMNS.get(primary_file, {}).get(sheet_name, [])
     if not columns:
-        raise HTTPException(status_code=400, detail="No columns available for selected file")
+        raise HTTPException(status_code=400, detail="No columns available for selected sheet")
     for file_id in request.files[1:]:
-        columns = _merge_columns(columns, INPUT_FILE_COLUMNS.get(file_id, []))
+        file_columns = INPUT_FILE_COLUMNS.get(file_id, {}).get(sheet_name, [])
+        columns = _merge_columns(columns, file_columns)
     columns = _slice_columns(columns, request.start_label, request.end_label)
 
     series_payload = []
     for file_id in request.files:
-        df = INPUT_FILES[file_id]
+        df = INPUT_FILES[file_id].get(sheet_name)
+        if df is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Sheet {sheet_name} not found for {file_id}",
+            )
         values = _get_series_values(df, request.series_name, columns)
         series_payload.append({"file": file_id, "values": values})
-    metadata = _get_series_metadata(request.series_name, request.files)
+    metadata = _get_series_metadata(request.series_name, request.files, sheet_name)
 
     return {"labels": columns, "series": series_payload, "metadata": metadata}
 
@@ -310,38 +373,49 @@ async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResp
     file_format = "xlsx" if filename.endswith(".xlsx") else "csv"
     try:
         if filename.endswith(".xlsx"):
-            df = pd.read_excel(io.BytesIO(content))
+            sheets = pd.read_excel(io.BytesIO(content), sheet_name=None)
         else:
             df = pd.read_csv(io.BytesIO(content))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc}") from exc
 
-    parsed, time_columns, metadata_df = _parse_input_dataframe(df)
     file_id = filename
     if file_id in INPUT_FILES:
         file_id = f"{Path(filename).stem}-{uuid.uuid4().hex[:8]}{Path(filename).suffix}"
-    INPUT_FILES[file_id] = parsed
-    INPUT_FILE_COLUMNS[file_id] = time_columns
-    INPUT_FILE_SERIES[file_id] = parsed.index.astype(str).tolist()
-    INPUT_FILE_FORMAT[file_id] = file_format
-    INPUT_FILE_METADATA[file_id] = metadata_df
+    if file_format == "xlsx":
+        parsed_sheets = _parse_excel_sheets(sheets)
+        if not parsed_sheets:
+            raise HTTPException(
+                status_code=400,
+                detail="Excel file must include a Quarterly or Monthly sheet",
+            )
+        _register_input_file(file_id, parsed_sheets, file_format)
+    else:
+        parsed, time_columns, metadata_df = _parse_input_dataframe(df)
+        _register_input_file(
+            file_id,
+            {DEFAULT_SHEET: (parsed, time_columns, metadata_df)},
+            file_format,
+        )
     metadata = InputFileMetadata(
         id=file_id,
         name=file_id,
-        series=INPUT_FILE_SERIES[file_id],
-        columns=INPUT_FILE_COLUMNS[file_id],
+        sheets=INPUT_FILE_SHEETS[file_id],
+        series_by_sheet=INPUT_FILE_SERIES[file_id],
+        columns_by_sheet=INPUT_FILE_COLUMNS[file_id],
     )
     return InputFileUploadResponse(file=metadata)
 
 
 @app.post("/api/input-files/edit")
 def edit_input_file(request: InputFileEditRequest) -> Dict[str, Any]:
-    df = INPUT_FILES.get(request.file_id)
+    sheet_name = request.sheet_name or DEFAULT_SHEET
+    df = INPUT_FILES.get(request.file_id, {}).get(sheet_name)
     if df is None:
         raise HTTPException(status_code=404, detail="Input file not found")
     if request.series_name not in df.index:
         raise HTTPException(status_code=400, detail="Unknown series name")
-    time_columns = INPUT_FILE_COLUMNS.get(request.file_id, [])
+    time_columns = INPUT_FILE_COLUMNS.get(request.file_id, {}).get(sheet_name, [])
     if request.label not in time_columns:
         raise HTTPException(status_code=400, detail="Unknown label")
     df.at[request.series_name, request.label] = request.value
@@ -357,19 +431,21 @@ def delete_input_file(file_id: str) -> DeleteInputFileResponse:
     INPUT_FILE_SERIES.pop(file_id, None)
     INPUT_FILE_FORMAT.pop(file_id, None)
     INPUT_FILE_METADATA.pop(file_id, None)
+    INPUT_FILE_SHEETS.pop(file_id, None)
     return DeleteInputFileResponse(deleted=True)
 
 
 @app.get("/api/input-files/{file_id}/download")
 def download_input_file(file_id: str) -> StreamingResponse:
-    df = INPUT_FILES.get(file_id)
-    if df is None:
+    sheets = INPUT_FILES.get(file_id)
+    if sheets is None:
         raise HTTPException(status_code=404, detail="Input file not found")
     file_format = INPUT_FILE_FORMAT.get(file_id, "csv")
-    export_df = df.reset_index()
     if file_format == "xlsx":
         buffer = io.BytesIO()
-        export_df.to_excel(buffer, index=False)
+        with pd.ExcelWriter(buffer) as writer:
+            for sheet_name, df in sheets.items():
+                df.reset_index().to_excel(writer, sheet_name=sheet_name, index=False)
         buffer.seek(0)
         headers = {"Content-Disposition": f"attachment; filename={file_id}"}
         return StreamingResponse(
@@ -377,6 +453,10 @@ def download_input_file(file_id: str) -> StreamingResponse:
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers=headers,
         )
+    df = sheets.get(DEFAULT_SHEET)
+    if df is None:
+        raise HTTPException(status_code=400, detail="No Quarterly data found for CSV export")
+    export_df = df.reset_index()
     buffer = io.StringIO()
     export_df.to_csv(buffer, index=False)
     headers = {"Content-Disposition": f"attachment; filename={file_id}"}
