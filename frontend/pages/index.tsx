@@ -9,8 +9,9 @@ const Plot = dynamic(() => import("react-plotly.js"), {
 type InputFile = {
   id: string;
   name: string;
-  series: string[];
-  columns: string[];
+  sheets: string[];
+  series_by_sheet: Record<string, string[]>;
+  columns_by_sheet: Record<string, string[]>;
 };
 
 type InputFilesResponse = {
@@ -30,7 +31,7 @@ type PlotResponse = {
 type QuarterLabel = {
   label: string;
   year: string;
-  quarter: string;
+  period: string;
 };
 
 type DisplayMode =
@@ -44,44 +45,14 @@ type DisplayMode =
 
 const API_BASE = "http://localhost:8000";
 
-const MODE_OPTIONS: Array<{ value: DisplayMode; label: string; description: string }> = [
-  { value: "raw", label: "Original (raw)", description: "Plot the stored values as-is." },
-  {
-    value: "quarterly_change",
-    label: "Quarterly change",
-    description: "Change vs. the previous quarter."
-  },
-  {
-    value: "quarterly_change_percent",
-    label: "Quarterly change (%)",
-    description: "Percent change vs. the previous quarter."
-  },
-  {
-    value: "year_over_year",
-    label: "Year-over-year change",
-    description: "Change vs. the same quarter in the prior year."
-  },
-  {
-    value: "year_over_year_percent",
-    label: "Year-over-year change (%)",
-    description: "Percent change vs. the same quarter in the prior year."
-  },
-  {
-    value: "since_start",
-    label: "Change vs. first quarter",
-    description: "Change vs. the first selected quarter."
-  },
-  {
-    value: "since_start_percent",
-    label: "Change vs. first quarter (%)",
-    description: "Percent change vs. the first selected quarter."
-  }
-];
-
 const isNumericValue = (value: number | null | undefined): value is number =>
   typeof value === "number" && !Number.isNaN(value);
 
-const deriveSeriesValues = (values: (number | null)[], mode: DisplayMode) => {
+const deriveSeriesValues = (
+  values: (number | null)[],
+  mode: DisplayMode,
+  periodsPerYear: number
+) => {
   if (mode === "raw") {
     return [...values];
   }
@@ -96,12 +67,20 @@ const deriveSeriesValues = (values: (number | null)[], mode: DisplayMode) => {
       return ((value - array[index - 1]!) / array[index - 1]!) * 100;
     }
     if (mode === "year_over_year") {
-      if (index < 4 || !isNumericValue(array[index - 4])) return null;
-      return value - array[index - 4]!;
+      if (index < periodsPerYear || !isNumericValue(array[index - periodsPerYear])) return null;
+      return value - array[index - periodsPerYear]!;
     }
     if (mode === "year_over_year_percent") {
-      if (index < 4 || !isNumericValue(array[index - 4]) || array[index - 4] === 0) return null;
-      return ((value - array[index - 4]!) / array[index - 4]!) * 100;
+      if (
+        index < periodsPerYear ||
+        !isNumericValue(array[index - periodsPerYear]) ||
+        array[index - periodsPerYear] === 0
+      ) {
+        return null;
+      }
+      return (
+        ((value - array[index - periodsPerYear]!) / array[index - periodsPerYear]!) * 100
+      );
     }
     if (mode === "since_start") {
       const baseline = array[0];
@@ -116,7 +95,6 @@ const deriveSeriesValues = (values: (number | null)[], mode: DisplayMode) => {
 
 export default function Home() {
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
-  const [seriesNames, setSeriesNames] = useState<string[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<string>("");
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [plotResponse, setPlotResponse] = useState<PlotResponse | null>(null);
@@ -124,29 +102,41 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [startLabel, setStartLabel] = useState<string>("");
   const [endLabel, setEndLabel] = useState<string>("");
+  const [selectedSheet, setSelectedSheet] = useState<string>("Quarterly");
 
-  const formatQuarterLabel = (label: string): QuarterLabel => {
+  const formatQuarterLabel = (label: string, sheetName: string): QuarterLabel => {
     const normalized = label.trim();
-    const match = normalized.match(/^(\d{4})[-\s]?Q([1-4])$/i);
-    if (match) {
-      return { label: `Q${match[2]} ${match[1]}`, year: match[1], quarter: match[2] };
+    if (sheetName === "Monthly") {
+      const match = normalized.match(/^(\d{4})M(\d{1,2})$/i);
+      if (match) {
+        return { label: normalized, year: match[1], period: match[2] };
+      }
+    } else {
+      const match = normalized.match(/^(\d{4})[-\s]?Q([1-4])$/i);
+      if (match) {
+        return { label: normalized, year: match[1], period: match[2] };
+      }
+      const numericMatch = normalized.match(/^(\d{4})\.(\d{1,2})$/);
+      if (numericMatch) {
+        return { label: normalized, year: numericMatch[1], period: numericMatch[2] };
+      }
     }
-    return { label: normalized, year: normalized, quarter: "" };
+    return { label: normalized, year: normalized, period: "" };
   };
 
   const compareLabels = (left: string, right: string) => {
-    const leftQuarter = formatQuarterLabel(left);
-    const rightQuarter = formatQuarterLabel(right);
-    if (leftQuarter.quarter && rightQuarter.quarter) {
-      const leftYear = Number(leftQuarter.year);
-      const rightYear = Number(rightQuarter.year);
+    const leftParsed = formatQuarterLabel(left, selectedSheet);
+    const rightParsed = formatQuarterLabel(right, selectedSheet);
+    if (leftParsed.period && rightParsed.period) {
+      const leftYear = Number(leftParsed.year);
+      const rightYear = Number(rightParsed.year);
       if (!Number.isNaN(leftYear) && !Number.isNaN(rightYear) && leftYear !== rightYear) {
         return leftYear - rightYear;
       }
-      const leftQuarterNumber = Number(leftQuarter.quarter);
-      const rightQuarterNumber = Number(rightQuarter.quarter);
-      if (!Number.isNaN(leftQuarterNumber) && !Number.isNaN(rightQuarterNumber)) {
-        return leftQuarterNumber - rightQuarterNumber;
+      const leftPeriodNumber = Number(leftParsed.period);
+      const rightPeriodNumber = Number(rightParsed.period);
+      if (!Number.isNaN(leftPeriodNumber) && !Number.isNaN(rightPeriodNumber)) {
+        return leftPeriodNumber - rightPeriodNumber;
       }
     }
     const leftDate = Date.parse(left);
@@ -157,9 +147,9 @@ export default function Home() {
     return left.localeCompare(right);
   };
 
-  const quarterLabels = useMemo(
-    () => plotResponse?.labels.map(formatQuarterLabel) ?? [],
-    [plotResponse]
+  const periodLabels = useMemo(
+    () => plotResponse?.labels.map((label) => formatQuarterLabel(label, selectedSheet)) ?? [],
+    [plotResponse, selectedSheet]
   );
 
   const tickValues = useMemo(
@@ -167,23 +157,19 @@ export default function Home() {
     [plotResponse]
   );
 
-  const tickText = useMemo(() => quarterLabels.map((entry) => entry.label), [quarterLabels]);
+  const tickText = useMemo(() => periodLabels.map((entry) => entry.label), [periodLabels]);
   const yearsOnAxis = useMemo(
     () =>
-      quarterLabels
+      periodLabels
         .filter((entry, index, array) => entry.year && (index === 0 || entry.year !== array[index - 1].year))
         .map((entry) => entry.year),
-    [quarterLabels]
+    [periodLabels]
   );
 
   const loadFiles = async () => {
     const response = await fetch(`${API_BASE}/api/input-files`);
     const payload = (await response.json()) as InputFilesResponse;
     setInputFiles(payload.files);
-    setSeriesNames(payload.series_names);
-    setSelectedSeries((prev) =>
-      prev && payload.series_names.includes(prev) ? prev : payload.series_names[0] || ""
-    );
     setSelectedFiles((prev) =>
       prev.length ? prev : payload.files.slice(0, 2).map((file) => file.id)
     );
@@ -193,16 +179,98 @@ export default function Home() {
     loadFiles();
   }, []);
 
+  const availableSheets = useMemo(() => {
+    if (inputFiles.length === 0) return [];
+    if (selectedFiles.length === 0) {
+      const allSheets = new Set<string>();
+      inputFiles.forEach((file) => file.sheets.forEach((sheet) => allSheets.add(sheet)));
+      return Array.from(allSheets).sort();
+    }
+    const selectedEntries = selectedFiles
+      .map((fileId) => inputFiles.find((entry) => entry.id === fileId))
+      .filter((entry): entry is InputFile => Boolean(entry));
+    if (selectedEntries.length === 0) return [];
+    const intersection = selectedEntries[0].sheets.filter((sheet) =>
+      selectedEntries.every((entry) => entry.sheets.includes(sheet))
+    );
+    return intersection.length ? intersection : selectedEntries[0].sheets;
+  }, [inputFiles, selectedFiles]);
+
+  useEffect(() => {
+    if (availableSheets.length === 0) return;
+    setSelectedSheet((prev) => (availableSheets.includes(prev) ? prev : availableSheets[0]));
+  }, [availableSheets]);
+
+  const availableSeries = useMemo(() => {
+    const names = new Set<string>();
+    const fileIds = selectedFiles.length ? selectedFiles : inputFiles.map((file) => file.id);
+    fileIds.forEach((fileId) => {
+      const file = inputFiles.find((entry) => entry.id === fileId);
+      const seriesList = file?.series_by_sheet?.[selectedSheet] ?? [];
+      seriesList.forEach((name) => names.add(name));
+    });
+    return Array.from(names).sort();
+  }, [inputFiles, selectedFiles, selectedSheet]);
+
+  useEffect(() => {
+    if (availableSeries.length === 0) {
+      setSelectedSeries("");
+      return;
+    }
+    setSelectedSeries((prev) => (availableSeries.includes(prev) ? prev : availableSeries[0]));
+  }, [availableSeries]);
+
+  const periodsPerYear = selectedSheet === "Monthly" ? 12 : 4;
+  const periodAdjective = selectedSheet === "Monthly" ? "Monthly" : "Quarterly";
+  const periodNoun = selectedSheet === "Monthly" ? "month" : "quarter";
+
+  const modeOptions = useMemo(
+    () => [
+      { value: "raw", label: "Original (raw)", description: "Plot the stored values as-is." },
+      {
+        value: "quarterly_change",
+        label: `${periodAdjective} change`,
+        description: `Change vs. the previous ${periodNoun}.`
+      },
+      {
+        value: "quarterly_change_percent",
+        label: `${periodAdjective} change (%)`,
+        description: `Percent change vs. the previous ${periodNoun}.`
+      },
+      {
+        value: "year_over_year",
+        label: "Year-over-year change",
+        description: `Change vs. the same ${periodNoun} in the prior year.`
+      },
+      {
+        value: "year_over_year_percent",
+        label: "Year-over-year change (%)",
+        description: `Percent change vs. the same ${periodNoun} in the prior year.`
+      },
+      {
+        value: "since_start",
+        label: `Change vs. first ${periodNoun}`,
+        description: `Change vs. the first selected ${periodNoun}.`
+      },
+      {
+        value: "since_start_percent",
+        label: `Change vs. first ${periodNoun} (%)`,
+        description: `Percent change vs. the first selected ${periodNoun}.`
+      }
+    ],
+    [periodAdjective, periodNoun]
+  );
+
   const displayResponse = useMemo(() => {
     if (!plotResponse) return null;
     return {
       ...plotResponse,
       series: plotResponse.series.map((entry) => ({
         ...entry,
-        values: deriveSeriesValues(entry.values, displayMode)
+        values: deriveSeriesValues(entry.values, displayMode, periodsPerYear)
       }))
     };
-  }, [plotResponse, displayMode]);
+  }, [plotResponse, displayMode, periodsPerYear]);
 
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
@@ -232,10 +300,11 @@ export default function Home() {
     const merged = new Set<string>();
     selectedFiles.forEach((fileId) => {
       const file = inputFiles.find((entry) => entry.id === fileId);
-      file?.columns.forEach((label) => merged.add(label));
+      const labels = file?.columns_by_sheet?.[selectedSheet] ?? [];
+      labels.forEach((label) => merged.add(label));
     });
     return Array.from(merged).sort(compareLabels);
-  }, [inputFiles, selectedFiles]);
+  }, [inputFiles, selectedFiles, selectedSheet]);
 
   useEffect(() => {
     if (availableLabels.length === 0) {
@@ -289,7 +358,8 @@ export default function Home() {
         series_name: selectedSeries,
         files: selectedFiles,
         start_label: startLabel || null,
-        end_label: endLabel || null
+        end_label: endLabel || null,
+        sheet_name: selectedSheet
       })
     });
     if (!response.ok) {
@@ -305,7 +375,7 @@ export default function Home() {
     if (!plotResponse || !selectedSeries || selectedFiles.length === 0) return;
     void fetchPlot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSeries, selectedFiles, startLabel, endLabel]);
+  }, [selectedSeries, selectedFiles, startLabel, endLabel, selectedSheet]);
 
   const updateValue = async (fileId: string, label: string, value: number) => {
     const response = await fetch(`${API_BASE}/api/input-files/edit`, {
@@ -315,7 +385,8 @@ export default function Home() {
         file_id: fileId,
         series_name: selectedSeries,
         label,
-        value
+        value,
+        sheet_name: selectedSheet
       })
     });
     if (!response.ok) {
@@ -358,7 +429,7 @@ export default function Home() {
     const pointIndex = point.pointNumber;
     const currentValue =
       point.y ?? displayResponse.series[traceIndex]?.values?.[pointIndex] ?? "";
-    const activeMode = MODE_OPTIONS.find((option) => option.value === displayMode);
+    const activeMode = modeOptions.find((option) => option.value === displayMode);
     const input = window.prompt(
       `Enter a new value for this datapoint (${activeMode?.label ?? "mode"}):`,
       String(currentValue ?? "")
@@ -377,42 +448,46 @@ export default function Home() {
     } else if (displayMode === "quarterly_change") {
       const prior = rawSeries.values[pointIndex - 1];
       if (pointIndex === 0 || !isNumericValue(prior)) {
-        setStatusMessage("Quarterly change needs a previous quarter value.");
+        setStatusMessage(`${periodAdjective} change needs a previous ${periodNoun} value.`);
         return;
       }
       nextRawValue = prior + nextValue;
     } else if (displayMode === "quarterly_change_percent") {
       const prior = rawSeries.values[pointIndex - 1];
       if (pointIndex === 0 || !isNumericValue(prior) || prior === 0) {
-        setStatusMessage("Quarterly percent change needs a non-zero previous value.");
+        setStatusMessage(`${periodAdjective} percent change needs a non-zero previous value.`);
         return;
       }
       nextRawValue = prior * (1 + nextValue / 100);
     } else if (displayMode === "year_over_year") {
-      const prior = rawSeries.values[pointIndex - 4];
-      if (pointIndex < 4 || !isNumericValue(prior)) {
-        setStatusMessage("Year-over-year change needs a value from four quarters earlier.");
+      const prior = rawSeries.values[pointIndex - periodsPerYear];
+      if (pointIndex < periodsPerYear || !isNumericValue(prior)) {
+        setStatusMessage(
+          `Year-over-year change needs a value from ${periodsPerYear} ${periodNoun}s earlier.`
+        );
         return;
       }
       nextRawValue = prior + nextValue;
     } else if (displayMode === "year_over_year_percent") {
-      const prior = rawSeries.values[pointIndex - 4];
-      if (pointIndex < 4 || !isNumericValue(prior) || prior === 0) {
-        setStatusMessage("Year-over-year percent change needs a non-zero value from four quarters earlier.");
+      const prior = rawSeries.values[pointIndex - periodsPerYear];
+      if (pointIndex < periodsPerYear || !isNumericValue(prior) || prior === 0) {
+        setStatusMessage(
+          `Year-over-year percent change needs a non-zero value from ${periodsPerYear} ${periodNoun}s earlier.`
+        );
         return;
       }
       nextRawValue = prior * (1 + nextValue / 100);
     } else if (displayMode === "since_start") {
       const baseline = rawSeries.values[0];
       if (!isNumericValue(baseline)) {
-        setStatusMessage("Change vs. first quarter needs the first value to be set.");
+        setStatusMessage(`Change vs. first ${periodNoun} needs the first value to be set.`);
         return;
       }
       nextRawValue = baseline + nextValue;
     } else {
       const baseline = rawSeries.values[0];
       if (!isNumericValue(baseline) || baseline === 0) {
-        setStatusMessage("Percent change vs. first quarter needs a non-zero first value.");
+        setStatusMessage(`Percent change vs. first ${periodNoun} needs a non-zero first value.`);
         return;
       }
       nextRawValue = baseline * (1 + nextValue / 100);
@@ -456,7 +531,8 @@ export default function Home() {
                       checked={selectedFiles.includes(file.id)}
                       onChange={() => handleFileToggle(file.id)}
                     />
-                    {" "}{file.name} ({file.series.length} series)
+                    {" "}
+                    {file.name} ({file.series_by_sheet[selectedSheet]?.length ?? 0} series)
                   </label>
                   <div className="file-actions">
                     <a
@@ -480,8 +556,8 @@ export default function Home() {
           </div>
         )}
         <p className="notice">
-          Choose files to plot simultaneously. Each row in the CSV is treated as a time-series
-          entry with the Mnemonic column as the name.
+          Choose files to plot simultaneously. Each row in the CSV/Excel sheet is treated as a
+          time-series entry with the Mnemonic column as the name.
         </p>
       </section>
 
@@ -494,15 +570,26 @@ export default function Home() {
               value={displayMode}
               onChange={(event) => setDisplayMode(event.target.value as DisplayMode)}
             >
-              {MODE_OPTIONS.map((option) => (
+              {modeOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </select>
             <p className="notice">
-              {MODE_OPTIONS.find((option) => option.value === displayMode)?.description}
+              {modeOptions.find((option) => option.value === displayMode)?.description}
             </p>
+          </div>
+          <div>
+            <label>Sheet</label>
+            <select value={selectedSheet} onChange={(event) => setSelectedSheet(event.target.value)}>
+              {availableSheets.map((sheet) => (
+                <option key={sheet} value={sheet}>
+                  {sheet}
+                </option>
+              ))}
+            </select>
+            <p className="notice">Choose the Excel sheet to plot (Quarterly or Monthly).</p>
           </div>
           <div>
             <label>Series name</label>
@@ -512,13 +599,13 @@ export default function Home() {
               value={selectedSeries}
               onChange={(event) => setSelectedSeries(event.target.value)}
               onBlur={() => {
-                if (!seriesNames.includes(selectedSeries) && seriesNames[0]) {
-                  setSelectedSeries(seriesNames[0]);
+                if (!availableSeries.includes(selectedSeries) && availableSeries[0]) {
+                  setSelectedSeries(availableSeries[0]);
                 }
               }}
             />
             <datalist id="series-options">
-              {seriesNames.map((name) => (
+              {availableSeries.map((name) => (
                 <option key={name} value={name} />
               ))}
             </datalist>
@@ -576,7 +663,7 @@ export default function Home() {
                 <Plot
                   data={plotData}
                   layout={{
-                    title: `Series: ${selectedSeries} (${MODE_OPTIONS.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
+                    title: `Series: ${selectedSeries} (${modeOptions.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
                     height: 520,
                     margin: { t: 50, r: 30, l: 50, b: 80 },
                     hovermode: "closest",
@@ -627,7 +714,9 @@ export default function Home() {
               </aside>
             </div>
             {yearsOnAxis.length > 0 && (
-              <p className="notice">Quarter spacing applied. Years shown: {yearsOnAxis.join(", ")}.</p>
+              <p className="notice">
+                {periodAdjective} spacing applied. Years shown: {yearsOnAxis.join(", ")}.
+              </p>
             )}
             <p className="notice">Tip: click a legend item to isolate a track.</p>
           </>
