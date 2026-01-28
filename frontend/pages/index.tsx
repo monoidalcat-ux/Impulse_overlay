@@ -610,6 +610,8 @@ export default function Home() {
               ))}
             </datalist>
           </div>
+        </div>
+        <div className="grid">
           <div>
             <label>Start label</label>
             <input
