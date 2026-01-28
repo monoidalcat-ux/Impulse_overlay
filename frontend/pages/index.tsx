@@ -33,7 +33,86 @@ type QuarterLabel = {
   quarter: string;
 };
 
+type DisplayMode =
+  | "raw"
+  | "quarterly_change"
+  | "quarterly_change_percent"
+  | "year_over_year"
+  | "year_over_year_percent"
+  | "since_start"
+  | "since_start_percent";
+
 const API_BASE = "http://localhost:8000";
+
+const MODE_OPTIONS: Array<{ value: DisplayMode; label: string; description: string }> = [
+  { value: "raw", label: "Original (raw)", description: "Plot the stored values as-is." },
+  {
+    value: "quarterly_change",
+    label: "Quarterly change",
+    description: "Change vs. the previous quarter."
+  },
+  {
+    value: "quarterly_change_percent",
+    label: "Quarterly change (%)",
+    description: "Percent change vs. the previous quarter."
+  },
+  {
+    value: "year_over_year",
+    label: "Year-over-year change",
+    description: "Change vs. the same quarter in the prior year."
+  },
+  {
+    value: "year_over_year_percent",
+    label: "Year-over-year change (%)",
+    description: "Percent change vs. the same quarter in the prior year."
+  },
+  {
+    value: "since_start",
+    label: "Change vs. first quarter",
+    description: "Change vs. the first selected quarter."
+  },
+  {
+    value: "since_start_percent",
+    label: "Change vs. first quarter (%)",
+    description: "Percent change vs. the first selected quarter."
+  }
+];
+
+const isNumericValue = (value: number | null | undefined): value is number =>
+  typeof value === "number" && !Number.isNaN(value);
+
+const deriveSeriesValues = (values: (number | null)[], mode: DisplayMode) => {
+  if (mode === "raw") {
+    return [...values];
+  }
+  return values.map((value, index, array) => {
+    if (!isNumericValue(value)) return null;
+    if (mode === "quarterly_change") {
+      if (index === 0 || !isNumericValue(array[index - 1])) return null;
+      return value - array[index - 1]!;
+    }
+    if (mode === "quarterly_change_percent") {
+      if (index === 0 || !isNumericValue(array[index - 1]) || array[index - 1] === 0) return null;
+      return ((value - array[index - 1]!) / array[index - 1]!) * 100;
+    }
+    if (mode === "year_over_year") {
+      if (index < 4 || !isNumericValue(array[index - 4])) return null;
+      return value - array[index - 4]!;
+    }
+    if (mode === "year_over_year_percent") {
+      if (index < 4 || !isNumericValue(array[index - 4]) || array[index - 4] === 0) return null;
+      return ((value - array[index - 4]!) / array[index - 4]!) * 100;
+    }
+    if (mode === "since_start") {
+      const baseline = array[0];
+      if (!isNumericValue(baseline)) return null;
+      return value - baseline;
+    }
+    const baseline = array[0];
+    if (!isNumericValue(baseline) || baseline === 0) return null;
+    return ((value - baseline) / baseline) * 100;
+  });
+};
 
 export default function Home() {
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
@@ -41,6 +120,7 @@ export default function Home() {
   const [selectedSeries, setSelectedSeries] = useState<string>("");
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [plotResponse, setPlotResponse] = useState<PlotResponse | null>(null);
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("raw");
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [startLabel, setStartLabel] = useState<string>("");
   const [endLabel, setEndLabel] = useState<string>("");
@@ -113,14 +193,25 @@ export default function Home() {
     loadFiles();
   }, []);
 
+  const displayResponse = useMemo(() => {
+    if (!plotResponse) return null;
+    return {
+      ...plotResponse,
+      series: plotResponse.series.map((entry) => ({
+        ...entry,
+        values: deriveSeriesValues(entry.values, displayMode)
+      }))
+    };
+  }, [plotResponse, displayMode]);
+
   const plotData = useMemo(() => {
-    if (!plotResponse) return [];
-    return plotResponse.series.map((seriesEntry) => {
-      const alignedValues = plotResponse.labels.map(
+    if (!displayResponse) return [];
+    return displayResponse.series.map((seriesEntry) => {
+      const alignedValues = displayResponse.labels.map(
         (_, index) => seriesEntry.values[index] ?? null
       );
       return {
-        x: plotResponse.labels.map((_, index) => index),
+        x: displayResponse.labels.map((_, index) => index),
         y: alignedValues,
         type: "scatter",
         mode: "lines+markers",
@@ -129,7 +220,7 @@ export default function Home() {
         connectgaps: false
       };
     });
-  }, [plotResponse]);
+  }, [displayResponse]);
 
   const metadataEntries = useMemo(() => {
     if (!plotResponse) return [];
@@ -261,16 +352,73 @@ export default function Home() {
   const handlePointClick = (event: {
     points?: Array<{ curveNumber: number; pointNumber: number; y?: number | null }>;
   }) => {
-    if (!plotResponse || !event.points || event.points.length === 0) return;
+    if (!plotResponse || !displayResponse || !event.points || event.points.length === 0) return;
     const point = event.points[0];
     const traceIndex = point.curveNumber;
     const pointIndex = point.pointNumber;
-    const currentValue = point.y ?? plotResponse.series[traceIndex]?.values?.[pointIndex] ?? "";
-    const input = window.prompt("Enter a new value for this datapoint:", String(currentValue ?? ""));
+    const currentValue =
+      point.y ?? displayResponse.series[traceIndex]?.values?.[pointIndex] ?? "";
+    const activeMode = MODE_OPTIONS.find((option) => option.value === displayMode);
+    const input = window.prompt(
+      `Enter a new value for this datapoint (${activeMode?.label ?? "mode"}):`,
+      String(currentValue ?? "")
+    );
     if (input === null) return;
     const nextValue = Number(input);
     if (Number.isNaN(nextValue)) {
       setStatusMessage("Please enter a valid numeric value.");
+      return;
+    }
+    const rawSeries = plotResponse.series[traceIndex];
+    if (!rawSeries) return;
+    let nextRawValue: number | null = null;
+    if (displayMode === "raw") {
+      nextRawValue = nextValue;
+    } else if (displayMode === "quarterly_change") {
+      const prior = rawSeries.values[pointIndex - 1];
+      if (pointIndex === 0 || !isNumericValue(prior)) {
+        setStatusMessage("Quarterly change needs a previous quarter value.");
+        return;
+      }
+      nextRawValue = prior + nextValue;
+    } else if (displayMode === "quarterly_change_percent") {
+      const prior = rawSeries.values[pointIndex - 1];
+      if (pointIndex === 0 || !isNumericValue(prior) || prior === 0) {
+        setStatusMessage("Quarterly percent change needs a non-zero previous value.");
+        return;
+      }
+      nextRawValue = prior * (1 + nextValue / 100);
+    } else if (displayMode === "year_over_year") {
+      const prior = rawSeries.values[pointIndex - 4];
+      if (pointIndex < 4 || !isNumericValue(prior)) {
+        setStatusMessage("Year-over-year change needs a value from four quarters earlier.");
+        return;
+      }
+      nextRawValue = prior + nextValue;
+    } else if (displayMode === "year_over_year_percent") {
+      const prior = rawSeries.values[pointIndex - 4];
+      if (pointIndex < 4 || !isNumericValue(prior) || prior === 0) {
+        setStatusMessage("Year-over-year percent change needs a non-zero value from four quarters earlier.");
+        return;
+      }
+      nextRawValue = prior * (1 + nextValue / 100);
+    } else if (displayMode === "since_start") {
+      const baseline = rawSeries.values[0];
+      if (!isNumericValue(baseline)) {
+        setStatusMessage("Change vs. first quarter needs the first value to be set.");
+        return;
+      }
+      nextRawValue = baseline + nextValue;
+    } else {
+      const baseline = rawSeries.values[0];
+      if (!isNumericValue(baseline) || baseline === 0) {
+        setStatusMessage("Percent change vs. first quarter needs a non-zero first value.");
+        return;
+      }
+      nextRawValue = baseline * (1 + nextValue / 100);
+    }
+    if (!isNumericValue(nextRawValue)) {
+      setStatusMessage("Unable to calculate a new value for this mode.");
       return;
     }
     setPlotResponse((prev) => {
@@ -281,10 +429,10 @@ export default function Home() {
       };
       const target = updated.series[traceIndex];
       if (!target) return prev;
-      target.values[pointIndex] = nextValue;
+      target.values[pointIndex] = nextRawValue;
       return updated;
     });
-    void updateValue(plotResponse.series[traceIndex].file, plotResponse.labels[pointIndex], nextValue);
+    void updateValue(plotResponse.series[traceIndex].file, plotResponse.labels[pointIndex], nextRawValue);
   };
 
   return (
@@ -340,6 +488,22 @@ export default function Home() {
       <section className="card">
         <div className="section-title">2) Plot selection & time range</div>
         <div className="grid">
+          <div>
+            <label>Display mode</label>
+            <select
+              value={displayMode}
+              onChange={(event) => setDisplayMode(event.target.value as DisplayMode)}
+            >
+              {MODE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="notice">
+              {MODE_OPTIONS.find((option) => option.value === displayMode)?.description}
+            </p>
+          </div>
           <div>
             <label>Series name</label>
             <input
@@ -412,7 +576,7 @@ export default function Home() {
                 <Plot
                   data={plotData}
                   layout={{
-                    title: `Series: ${selectedSeries}`,
+                    title: `Series: ${selectedSeries} (${MODE_OPTIONS.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
                     height: 520,
                     margin: { t: 50, r: 30, l: 50, b: 80 },
                     hovermode: "closest",
