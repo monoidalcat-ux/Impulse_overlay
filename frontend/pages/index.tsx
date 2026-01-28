@@ -465,67 +465,7 @@ export default function Home() {
             {yearsOnAxis.length > 0 && (
               <p className="notice">Quarter spacing applied. Years shown: {yearsOnAxis.join(", ")}.</p>
             )}
-            <p className="notice">
-              Click a point to enter a value, or edit values in the table below.
-            </p>
             <p className="notice">Tip: click a legend item to isolate a track.</p>
-            <h4>Series values by file</h4>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>File</th>
-                  {plotResponse.labels.map((label) => (
-                    <th key={label}>{label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {plotResponse.series.map((seriesEntry) => (
-                  <tr key={seriesEntry.file}>
-                    <td>{seriesEntry.file}</td>
-                    {seriesEntry.values.map((value, idx) => (
-                      <td key={`${seriesEntry.file}-${idx}`}>
-                        <input
-                          type="number"
-                          value={value ?? ""}
-                          onChange={(event) => {
-                            const nextValue = event.target.value === "" ? null : Number(event.target.value);
-                            if (nextValue !== null && Number.isNaN(nextValue)) return;
-                            setPlotResponse((prev) => {
-                              if (!prev) return prev;
-                              const updated = {
-                                labels: prev.labels,
-                                series: prev.series.map((entry) => ({ ...entry }))
-                              };
-                              const target = updated.series.find((entry) => entry.file === seriesEntry.file);
-                              if (!target) return prev;
-                              target.values[idx] = nextValue;
-                              return updated;
-                            });
-                          }}
-                          onBlur={(event) => {
-                            const nextValue = Number(event.target.value);
-                            if (Number.isNaN(nextValue)) return;
-                            void updateValue(seriesEntry.file, plotResponse.labels[idx], nextValue);
-                            setPlotResponse((prev) => {
-                              if (!prev) return prev;
-                              const updated = {
-                                labels: prev.labels,
-                                series: prev.series.map((entry) => ({ ...entry }))
-                              };
-                              const target = updated.series.find((entry) => entry.file === seriesEntry.file);
-                              if (!target) return prev;
-                              target.values[idx] = nextValue;
-                              return updated;
-                            });
-                          }}
-                        />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </>
         )}
       </section>
