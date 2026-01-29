@@ -266,12 +266,20 @@ export default function Home() {
     [displayResponse]
   );
 
-  const tickValues = useMemo(
-    () => displayResponse?.labels.map((_, index) => index) ?? [],
-    [displayResponse]
-  );
+  const tickValues = useMemo(() => {
+    const labels = displayResponse?.labels ?? [];
+    const maxTicks = 12;
+    if (labels.length === 0) return [];
+    const step = labels.length > maxTicks ? Math.ceil(labels.length / maxTicks) : 1;
+    return labels
+      .map((_, index) => index)
+      .filter((index) => index % step === 0 || index === labels.length - 1);
+  }, [displayResponse]);
 
-  const tickText = useMemo(() => periodLabels.map((entry) => entry.label), [periodLabels]);
+  const tickText = useMemo(() => {
+    if (!displayResponse) return [];
+    return tickValues.map((index) => formatQuarterLabel(displayResponse.labels[index] ?? "").label);
+  }, [displayResponse, tickValues]);
   const yearsOnAxis = useMemo(
     () =>
       periodLabels
