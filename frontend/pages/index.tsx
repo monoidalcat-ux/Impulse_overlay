@@ -140,25 +140,6 @@ export default function Home() {
     return left.localeCompare(right);
   };
 
-  const periodLabels = useMemo(
-    () => plotResponse?.labels.map((label) => formatQuarterLabel(label)) ?? [],
-    [plotResponse]
-  );
-
-  const tickValues = useMemo(
-    () => plotResponse?.labels.map((_, index) => index) ?? [],
-    [plotResponse]
-  );
-
-  const tickText = useMemo(() => periodLabels.map((entry) => entry.label), [periodLabels]);
-  const yearsOnAxis = useMemo(
-    () =>
-      periodLabels
-        .filter((entry, index, array) => entry.year && (index === 0 || entry.year !== array[index - 1].year))
-        .map((entry) => entry.year),
-    [periodLabels]
-  );
-
   const loadFiles = async () => {
     const response = await fetch(`${API_BASE}/api/input-files`);
     const payload = (await response.json()) as InputFilesResponse;
@@ -280,6 +261,35 @@ export default function Home() {
     };
   }, [plotResponse, displayRange, displayMode]);
 
+  const periodLabels = useMemo(
+    () => displayResponse?.labels.map((label) => formatQuarterLabel(label)) ?? [],
+    [displayResponse]
+  );
+
+  const tickValues = useMemo(() => {
+    const labels = displayResponse?.labels ?? [];
+    const maxTicks = 12;
+    if (labels.length === 0) return [];
+    const step = labels.length > maxTicks ? Math.ceil(labels.length / maxTicks) : 1;
+    return labels
+      .map((_, index) => index)
+      .filter((index) => index % step === 0 || index === labels.length - 1);
+  }, [displayResponse]);
+
+  const tickText = useMemo(() => {
+    if (!displayResponse || tickValues.length === 0) return [];
+    return tickValues.map((index) =>
+      formatQuarterLabel(displayResponse.labels[index] ?? "").label
+    );
+  }, [displayResponse, tickValues]);
+  const yearsOnAxis = useMemo(
+    () =>
+      periodLabels
+        .filter((entry, index, array) => entry.year && (index === 0 || entry.year !== array[index - 1].year))
+        .map((entry) => entry.year),
+    [periodLabels]
+  );
+
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
     return displayResponse.series.map((seriesEntry) => {
@@ -293,7 +303,9 @@ export default function Home() {
         mode: "lines+markers",
         name: seriesEntry.file,
         marker: { size: 8 },
-        connectgaps: false
+        connectgaps: false,
+        customdata: displayResponse.labels,
+        hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       };
     });
   }, [displayResponse]);
