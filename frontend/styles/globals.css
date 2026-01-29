@@ -55,6 +55,17 @@ button {
   font-size: 14px;
 }
 
+input[type="file"]::file-selector-button {
+  padding: 8px 12px;
+  font-size: 14px;
+  border-radius: 999px;
+  border: 1px solid #d1a6a6;
+  background: #f4e6e6;
+  color: #7a2e2e;
+  min-width: 110px;
+  cursor: pointer;
+}
+
 button {
   cursor: pointer;
   background: #4f46e5;
