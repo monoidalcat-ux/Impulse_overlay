@@ -271,13 +271,17 @@ export default function Home() {
     const maxTicks = 12;
     if (labels.length === 0) return [];
     const step = labels.length > maxTicks ? Math.ceil(labels.length / maxTicks) : 1;
-    return labels.filter((_, index) => index % step === 0 || index === labels.length - 1);
+    return labels
+      .map((_, index) => index)
+      .filter((index) => index % step === 0 || index === labels.length - 1);
   }, [displayResponse]);
 
   const tickText = useMemo(() => {
-    if (tickValues.length === 0) return [];
-    return tickValues.map((label) => formatQuarterLabel(label).label);
-  }, [tickValues]);
+    if (!displayResponse || tickValues.length === 0) return [];
+    return tickValues.map((index) =>
+      formatQuarterLabel(displayResponse.labels[index] ?? "").label
+    );
+  }, [displayResponse, tickValues]);
   const yearsOnAxis = useMemo(
     () =>
       periodLabels
@@ -293,13 +297,15 @@ export default function Home() {
         (_, index) => seriesEntry.values[index] ?? null
       );
       return {
-        x: displayResponse.labels,
+        x: displayResponse.labels.map((_, index) => index),
         y: alignedValues,
         type: "scatter",
         mode: "lines+markers",
         name: seriesEntry.file,
         marker: { size: 8 },
-        connectgaps: false
+        connectgaps: false,
+        customdata: displayResponse.labels,
+        hovertemplate: "%{customdata}<extra></extra>"
       };
     });
   }, [displayResponse]);
