@@ -111,10 +111,9 @@ def _infer_date_column(df: pd.DataFrame) -> str:
     return best_column
 
 
-TIME_COLUMN_PATTERN = re.compile(r"^(?:\d{4}\.\d+|\d{4}M\d{1,2})$")
+TIME_COLUMN_PATTERN = re.compile(r"^\d{4}\.\d+$")
 
 DEFAULT_SHEET = "Quarterly"
-MONTHLY_SHEET = "Monthly"
 
 
 def _parse_input_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, List[str], pd.DataFrame]:
@@ -132,7 +131,7 @@ def _parse_input_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, List[str], p
     if not time_columns:
         raise HTTPException(
             status_code=400,
-            detail="Input file must include timestamp columns like 2022.1 or 2000M1",
+            detail="Input file must include timestamp columns like 2022.1",
         )
     metadata_columns = [
         column
@@ -181,15 +180,12 @@ def _load_input_files() -> None:
 def _parse_excel_sheets(
     sheets: Dict[str, pd.DataFrame],
 ) -> Dict[str, tuple[pd.DataFrame, List[str], pd.DataFrame]]:
-    parsed_sheets: Dict[str, tuple[pd.DataFrame, List[str], pd.DataFrame]] = {}
-    for sheet_name in [DEFAULT_SHEET, MONTHLY_SHEET]:
-        if sheet_name not in sheets:
-            continue
-        try:
-            parsed_sheets[sheet_name] = _parse_input_dataframe(sheets[sheet_name])
-        except HTTPException:
-            continue
-    return parsed_sheets
+    if DEFAULT_SHEET not in sheets:
+        return {}
+    try:
+        return {DEFAULT_SHEET: _parse_input_dataframe(sheets[DEFAULT_SHEET])}
+    except HTTPException:
+        return {}
 
 
 def _register_input_file(
@@ -387,7 +383,7 @@ async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResp
         if not parsed_sheets:
             raise HTTPException(
                 status_code=400,
-                detail="Excel file must include a Quarterly or Monthly sheet",
+                detail="Excel file must include a Quarterly sheet",
             )
         _register_input_file(file_id, parsed_sheets, file_format)
     else:

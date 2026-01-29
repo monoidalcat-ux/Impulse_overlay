@@ -102,31 +102,24 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [startLabel, setStartLabel] = useState<string>("");
   const [endLabel, setEndLabel] = useState<string>("");
-  const [selectedSheet, setSelectedSheet] = useState<string>("Quarterly");
+  const selectedSheet = "Quarterly";
 
-  const formatQuarterLabel = (label: string, sheetName: string): QuarterLabel => {
+  const formatQuarterLabel = (label: string): QuarterLabel => {
     const normalized = label.trim();
-    if (sheetName === "Monthly") {
-      const match = normalized.match(/^(\d{4})M(\d{1,2})$/i);
-      if (match) {
-        return { label: normalized, year: match[1], period: match[2] };
-      }
-    } else {
-      const match = normalized.match(/^(\d{4})[-\s]?Q([1-4])$/i);
-      if (match) {
-        return { label: normalized, year: match[1], period: match[2] };
-      }
-      const numericMatch = normalized.match(/^(\d{4})\.(\d{1,2})$/);
-      if (numericMatch) {
-        return { label: normalized, year: numericMatch[1], period: numericMatch[2] };
-      }
+    const match = normalized.match(/^(\d{4})[-\s]?Q([1-4])$/i);
+    if (match) {
+      return { label: normalized, year: match[1], period: match[2] };
+    }
+    const numericMatch = normalized.match(/^(\d{4})\.(\d{1,2})$/);
+    if (numericMatch) {
+      return { label: normalized, year: numericMatch[1], period: numericMatch[2] };
     }
     return { label: normalized, year: normalized, period: "" };
   };
 
   const compareLabels = (left: string, right: string) => {
-    const leftParsed = formatQuarterLabel(left, selectedSheet);
-    const rightParsed = formatQuarterLabel(right, selectedSheet);
+    const leftParsed = formatQuarterLabel(left);
+    const rightParsed = formatQuarterLabel(right);
     if (leftParsed.period && rightParsed.period) {
       const leftYear = Number(leftParsed.year);
       const rightYear = Number(rightParsed.year);
@@ -148,8 +141,8 @@ export default function Home() {
   };
 
   const periodLabels = useMemo(
-    () => plotResponse?.labels.map((label) => formatQuarterLabel(label, selectedSheet)) ?? [],
-    [plotResponse, selectedSheet]
+    () => plotResponse?.labels.map((label) => formatQuarterLabel(label)) ?? [],
+    [plotResponse]
   );
 
   const tickValues = useMemo(
@@ -179,28 +172,6 @@ export default function Home() {
     loadFiles();
   }, []);
 
-  const availableSheets = useMemo(() => {
-    if (inputFiles.length === 0) return [];
-    if (selectedFiles.length === 0) {
-      const allSheets = new Set<string>();
-      inputFiles.forEach((file) => file.sheets.forEach((sheet) => allSheets.add(sheet)));
-      return Array.from(allSheets).sort();
-    }
-    const selectedEntries = selectedFiles
-      .map((fileId) => inputFiles.find((entry) => entry.id === fileId))
-      .filter((entry): entry is InputFile => Boolean(entry));
-    if (selectedEntries.length === 0) return [];
-    const intersection = selectedEntries[0].sheets.filter((sheet) =>
-      selectedEntries.every((entry) => entry.sheets.includes(sheet))
-    );
-    return intersection.length ? intersection : selectedEntries[0].sheets;
-  }, [inputFiles, selectedFiles]);
-
-  useEffect(() => {
-    if (availableSheets.length === 0) return;
-    setSelectedSheet((prev) => (availableSheets.includes(prev) ? prev : availableSheets[0]));
-  }, [availableSheets]);
-
   const availableSeries = useMemo(() => {
     const names = new Set<string>();
     const fileIds = selectedFiles.length ? selectedFiles : inputFiles.map((file) => file.id);
@@ -210,7 +181,7 @@ export default function Home() {
       seriesList.forEach((name) => names.add(name));
     });
     return Array.from(names).sort();
-  }, [inputFiles, selectedFiles, selectedSheet]);
+  }, [inputFiles, selectedFiles]);
 
   useEffect(() => {
     if (availableSeries.length === 0) {
@@ -220,9 +191,9 @@ export default function Home() {
     setSelectedSeries((prev) => (availableSeries.includes(prev) ? prev : availableSeries[0]));
   }, [availableSeries]);
 
-  const periodsPerYear = selectedSheet === "Monthly" ? 12 : 4;
-  const periodAdjective = selectedSheet === "Monthly" ? "Monthly" : "Quarterly";
-  const periodNoun = selectedSheet === "Monthly" ? "month" : "quarter";
+  const periodsPerYear = 4;
+  const periodAdjective = "Quarterly";
+  const periodNoun = "quarter";
 
   const modeOptions = useMemo(
     () => [
@@ -307,7 +278,7 @@ export default function Home() {
         };
       })
     };
-  }, [plotResponse, displayRange, displayMode, periodsPerYear]);
+  }, [plotResponse, displayRange, displayMode]);
 
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
@@ -341,7 +312,7 @@ export default function Home() {
       labels.forEach((label) => merged.add(label));
     });
     return Array.from(merged).sort(compareLabels);
-  }, [inputFiles, selectedFiles, selectedSheet]);
+  }, [inputFiles, selectedFiles]);
 
   useEffect(() => {
     if (availableLabels.length === 0) {
@@ -420,7 +391,7 @@ export default function Home() {
     if (!plotResponse || !selectedSeries || selectedFiles.length === 0) return;
     void fetchPlot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSeries, selectedFiles, startLabel, endLabel, selectedSheet]);
+  }, [selectedSeries, selectedFiles, startLabel, endLabel]);
 
   const updateValue = async (fileId: string, label: string, value: number) => {
     const response = await fetch(`${API_BASE}/api/input-files/edit`, {
@@ -632,17 +603,6 @@ export default function Home() {
             </p>
           </div>
           <div>
-            <label>Sheet</label>
-            <select value={selectedSheet} onChange={(event) => setSelectedSheet(event.target.value)}>
-              {availableSheets.map((sheet) => (
-                <option key={sheet} value={sheet}>
-                  {sheet}
-                </option>
-              ))}
-            </select>
-            <p className="notice">Choose the Excel sheet to plot (Quarterly or Monthly).</p>
-          </div>
-          <div>
             <label>Mnemonic</label>
             <input
               className="search-input"
@@ -718,7 +678,14 @@ export default function Home() {
                   layout={{
                     title: `Series: ${selectedSeries} (${modeOptions.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
                     height: 520,
-                    margin: { t: 50, r: 30, l: 50, b: 80 },
+                    margin: { t: 50, r: 30, l: 50, b: 120 },
+                    legend: {
+                      orientation: "h",
+                      x: 0,
+                      y: -0.2,
+                      xanchor: "left",
+                      yanchor: "top"
+                    },
                     hovermode: "closest",
                     dragmode: false,
                     xaxis: {
