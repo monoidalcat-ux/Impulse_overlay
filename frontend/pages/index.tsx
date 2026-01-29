@@ -261,16 +261,53 @@ export default function Home() {
     [periodAdjective, periodNoun]
   );
 
+  const displayRange = useMemo(() => {
+    if (!plotResponse || plotResponse.labels.length === 0) return null;
+    let startIndex = 0;
+    let endIndex = plotResponse.labels.length - 1;
+    if (startLabel) {
+      const foundStart = plotResponse.labels.indexOf(startLabel);
+      if (foundStart !== -1) startIndex = foundStart;
+    }
+    if (endLabel) {
+      const foundEnd = plotResponse.labels.indexOf(endLabel);
+      if (foundEnd !== -1) endIndex = foundEnd;
+    }
+    if (startIndex > endIndex) {
+      const swap = startIndex;
+      startIndex = endIndex;
+      endIndex = swap;
+    }
+    return { startIndex, endIndex };
+  }, [plotResponse, startLabel, endLabel]);
+
   const displayResponse = useMemo(() => {
     if (!plotResponse) return null;
+    const range = displayRange ?? { startIndex: 0, endIndex: plotResponse.labels.length - 1 };
+    const slice = (values: (number | null)[]) =>
+      values.slice(range.startIndex, range.endIndex + 1);
+    const needsHistory = [
+      "quarterly_change",
+      "quarterly_change_percent",
+      "year_over_year",
+      "year_over_year_percent"
+    ].includes(displayMode);
     return {
       ...plotResponse,
-      series: plotResponse.series.map((entry) => ({
-        ...entry,
-        values: deriveSeriesValues(entry.values, displayMode, periodsPerYear)
-      }))
+      labels: slice(plotResponse.labels),
+      series: plotResponse.series.map((entry) => {
+        if (needsHistory) {
+          const derived = deriveSeriesValues(entry.values, displayMode, periodsPerYear);
+          return { ...entry, values: slice(derived) };
+        }
+        const slicedValues = slice(entry.values);
+        return {
+          ...entry,
+          values: deriveSeriesValues(slicedValues, displayMode, periodsPerYear)
+        };
+      })
     };
-  }, [plotResponse, displayMode, periodsPerYear]);
+  }, [plotResponse, displayRange, displayMode, periodsPerYear]);
 
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
@@ -351,13 +388,21 @@ export default function Home() {
       setStatusMessage("Choose a series name and at least one file.");
       return;
     }
+    let calcStartLabel = startLabel || null;
+    if (startLabel && availableLabels.length) {
+      const startIndex = availableLabels.indexOf(startLabel);
+      if (startIndex > 0) {
+        const lookbackIndex = Math.max(0, startIndex - periodsPerYear);
+        calcStartLabel = availableLabels[lookbackIndex] ?? startLabel;
+      }
+    }
     const response = await fetch(`${API_BASE}/api/plot-series`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         series_name: selectedSeries,
         files: selectedFiles,
-        start_label: startLabel || null,
+        start_label: calcStartLabel,
         end_label: endLabel || null,
         sheet_name: selectedSheet
       })
@@ -427,6 +472,8 @@ export default function Home() {
     const point = event.points[0];
     const traceIndex = point.curveNumber;
     const pointIndex = point.pointNumber;
+    const rangeStartIndex = displayRange?.startIndex ?? 0;
+    const rawIndex = rangeStartIndex + pointIndex;
     const currentValue =
       point.y ?? displayResponse.series[traceIndex]?.values?.[pointIndex] ?? "";
     const activeMode = modeOptions.find((option) => option.value === displayMode);
@@ -446,22 +493,22 @@ export default function Home() {
     if (displayMode === "raw") {
       nextRawValue = nextValue;
     } else if (displayMode === "quarterly_change") {
-      const prior = rawSeries.values[pointIndex - 1];
-      if (pointIndex === 0 || !isNumericValue(prior)) {
+      const prior = rawSeries.values[rawIndex - 1];
+      if (rawIndex === 0 || !isNumericValue(prior)) {
         setStatusMessage(`${periodAdjective} change needs a previous ${periodNoun} value.`);
         return;
       }
       nextRawValue = prior + nextValue;
     } else if (displayMode === "quarterly_change_percent") {
-      const prior = rawSeries.values[pointIndex - 1];
-      if (pointIndex === 0 || !isNumericValue(prior) || prior === 0) {
+      const prior = rawSeries.values[rawIndex - 1];
+      if (rawIndex === 0 || !isNumericValue(prior) || prior === 0) {
         setStatusMessage(`${periodAdjective} percent change needs a non-zero previous value.`);
         return;
       }
       nextRawValue = prior * (1 + nextValue / 100);
     } else if (displayMode === "year_over_year") {
-      const prior = rawSeries.values[pointIndex - periodsPerYear];
-      if (pointIndex < periodsPerYear || !isNumericValue(prior)) {
+      const prior = rawSeries.values[rawIndex - periodsPerYear];
+      if (rawIndex < periodsPerYear || !isNumericValue(prior)) {
         setStatusMessage(
           `Year-over-year change needs a value from ${periodsPerYear} ${periodNoun}s earlier.`
         );
@@ -469,8 +516,8 @@ export default function Home() {
       }
       nextRawValue = prior + nextValue;
     } else if (displayMode === "year_over_year_percent") {
-      const prior = rawSeries.values[pointIndex - periodsPerYear];
-      if (pointIndex < periodsPerYear || !isNumericValue(prior) || prior === 0) {
+      const prior = rawSeries.values[rawIndex - periodsPerYear];
+      if (rawIndex < periodsPerYear || !isNumericValue(prior) || prior === 0) {
         setStatusMessage(
           `Year-over-year percent change needs a non-zero value from ${periodsPerYear} ${periodNoun}s earlier.`
         );
@@ -478,14 +525,14 @@ export default function Home() {
       }
       nextRawValue = prior * (1 + nextValue / 100);
     } else if (displayMode === "since_start") {
-      const baseline = rawSeries.values[0];
+      const baseline = rawSeries.values[rangeStartIndex];
       if (!isNumericValue(baseline)) {
         setStatusMessage(`Change vs. first ${periodNoun} needs the first value to be set.`);
         return;
       }
       nextRawValue = baseline + nextValue;
     } else {
-      const baseline = rawSeries.values[0];
+      const baseline = rawSeries.values[rangeStartIndex];
       if (!isNumericValue(baseline) || baseline === 0) {
         setStatusMessage(`Percent change vs. first ${periodNoun} needs a non-zero first value.`);
         return;
@@ -504,10 +551,14 @@ export default function Home() {
       };
       const target = updated.series[traceIndex];
       if (!target) return prev;
-      target.values[pointIndex] = nextRawValue;
+      target.values[rawIndex] = nextRawValue;
       return updated;
     });
-    void updateValue(plotResponse.series[traceIndex].file, plotResponse.labels[pointIndex], nextRawValue);
+    void updateValue(
+      plotResponse.series[traceIndex].file,
+      plotResponse.labels[rawIndex],
+      nextRawValue
+    );
   };
 
   return (
