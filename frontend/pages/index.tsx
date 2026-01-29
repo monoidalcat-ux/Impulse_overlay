@@ -539,6 +539,7 @@ export default function Home() {
       <section className="card">
         <div className="section-title">1) Upload & available files</div>
         <input type="file" accept=".csv,.xlsx" onChange={handleUpload} />
+        {statusMessage && <p className="notice">Upload status: {statusMessage}</p>}
         {inputFiles.length === 0 && (
           <p className="notice">No input files found. Add CSVs to the test folder.</p>
         )}
@@ -668,7 +669,6 @@ export default function Home() {
             </button>
           </div>
         </div>
-        {statusMessage && <p className="notice">{statusMessage}</p>}
         {plotResponse && (
           <>
             <div className="plot-area">
