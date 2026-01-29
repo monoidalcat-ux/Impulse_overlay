@@ -305,7 +305,7 @@ export default function Home() {
         marker: { size: 8 },
         connectgaps: false,
         customdata: displayResponse.labels,
-        hovertemplate: "%{customdata}<extra></extra>"
+        hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       };
     });
   }, [displayResponse]);
