@@ -24,6 +24,7 @@ type PlotResponse = {
   series: {
     file: string;
     values: (number | null)[];
+    scenario?: string | null;
   }[];
   metadata: Record<string, string>;
 };
@@ -301,7 +302,7 @@ export default function Home() {
         y: alignedValues,
         type: "scatter",
         mode: "lines+markers",
-        name: seriesEntry.file,
+        name: seriesEntry.scenario?.trim() || seriesEntry.file,
         marker: { size: 8 },
         connectgaps: false,
         customdata: displayResponse.labels,
@@ -729,22 +730,22 @@ export default function Home() {
                   onClick={handlePointClick}
                 />
               </div>
-              <aside className="metadata-card">
-                <h4>Series metadata</h4>
-                {metadataEntries.length === 0 ? (
-                  <p className="notice">No metadata found for this series.</p>
-                ) : (
-                  <ul className="metadata-list">
-                    {metadataEntries.map(([key, value]) => (
-                      <li key={key}>
-                        <span>{key}</span>
-                        <strong>{value}</strong>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </aside>
             </div>
+            <aside className="metadata-card metadata-card--below">
+              <h4>Series metadata</h4>
+              {metadataEntries.length === 0 ? (
+                <p className="notice">No metadata found for this series.</p>
+              ) : (
+                <ul className="metadata-list">
+                  {metadataEntries.map(([key, value]) => (
+                    <li key={key}>
+                      <span>{key}</span>
+                      <strong>{value}</strong>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </aside>
             {yearsOnAxis.length > 0 && (
               <p className="notice">
                 {periodAdjective} spacing applied. Years shown: {yearsOnAxis.join(", ")}.

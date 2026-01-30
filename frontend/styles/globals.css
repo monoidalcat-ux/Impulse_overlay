@@ -167,6 +167,12 @@ button.ghost {
   padding: 16px;
 }
 
+.metadata-card--below {
+  flex: 1 1 auto;
+  margin-top: 16px;
+  width: 100%;
+}
+
 .metadata-card h4 {
   margin-top: 0;
 }
