@@ -159,6 +159,10 @@ button.ghost {
   min-width: 320px;
 }
 
+.rangeslider .rangeslider-mask {
+  fill: rgba(255, 255, 255, 0.5) !important;
+}
+
 .quick-range {
   display: flex;
   gap: 8px;
