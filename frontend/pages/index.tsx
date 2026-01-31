@@ -410,6 +410,28 @@ export default function Home() {
     return [minValue - padding, maxValue + padding];
   }, [plotResponse, displayRange, displayValuesByFile]);
 
+  const fullYAxisRange = useMemo(() => {
+    if (!plotResponse) return undefined;
+    const values: number[] = [];
+    plotResponse.series.forEach((entry) => {
+      const seriesValues = displayValuesByFile[entry.file] ?? entry.values;
+      seriesValues.forEach((value) => {
+        if (isNumericValue(value)) {
+          values.push(value);
+        }
+      });
+    });
+    if (values.length === 0) return undefined;
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    if (minValue === maxValue) {
+      const padding = Math.abs(minValue || 1) * 0.05;
+      return [minValue - padding, maxValue + padding];
+    }
+    const padding = (maxValue - minValue) * 0.05;
+    return [minValue - padding, maxValue + padding];
+  }, [plotResponse, displayValuesByFile]);
+
   const periodLabels = useMemo(
     () => displayLabels.map((label) => formatQuarterLabel(label)),
     [displayLabels]
@@ -1212,7 +1234,8 @@ export default function Home() {
                         thickness: 0.12,
                         bgcolor: "#e5e7eb",
                         bordercolor: "#9ca3af",
-                        borderwidth: 1
+                        borderwidth: 1,
+                        yaxis: fullYAxisRange ? { range: fullYAxisRange } : undefined
                       },
                       range: displayRange
                         ? [displayRange.startIndex, displayRange.endIndex]
