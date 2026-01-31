@@ -417,7 +417,7 @@ export default function Home() {
       const hasChanges = hasChangesByFile[fileId];
       const nameBase = seriesEntry.scenario?.trim() || fileId;
       const xValues = plotResponse.labels.map((_, index) => index);
-      const makeTrace = (
+      const makeLineTrace = (
         values: (number | null)[],
         name: string,
         options: {
@@ -430,39 +430,65 @@ export default function Home() {
         x: xValues,
         y: plotResponse.labels.map((_, index) => values[index] ?? null),
         type: "scatter",
-        mode: "lines+markers",
+        mode: "lines",
         name,
         legendrank: legendRank,
         opacity: isLocked ? 0.4 : options.opacity ?? 1,
-        marker: { size: 8, color: options.color },
         line: { color: options.color, dash: options.dash },
         connectgaps: false,
         customdata: plotResponse.labels,
         meta: { fileId, isOriginal: options.isOriginal ?? false },
         hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       });
+      const makeMarkerTrace = (
+        values: (number | null)[],
+        options: { color: string; opacity?: number; isOriginal?: boolean }
+      ) => ({
+        x: xValues,
+        y: plotResponse.labels.map((_, index) => values[index] ?? null),
+        type: "scatter",
+        mode: "markers",
+        showlegend: false,
+        opacity: isLocked ? 0.4 : options.opacity ?? 1,
+        marker: { size: 8, color: options.color },
+        connectgaps: false,
+        customdata: plotResponse.labels,
+        meta: { fileId, isOriginal: options.isOriginal ?? false },
+        hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>",
+        xaxis: "x2"
+      });
       if (hasChanges && originalEntry) {
+        const originalValues = originalDisplayValuesByFile[fileId] ?? originalEntry.values;
+        const modifiedValues = displayValuesByFile[fileId] ?? seriesEntry.values;
         return [
-          makeTrace(
-            originalDisplayValuesByFile[fileId] ?? originalEntry.values,
-            `${nameBase} (original)`,
-            {
-              color: fadedColor,
-              dash: "dash",
-              opacity: 0.9,
-              isOriginal: true
-            }
-          ),
-          makeTrace(displayValuesByFile[fileId] ?? seriesEntry.values, `${nameBase} (modified)`, {
+          makeLineTrace(originalValues, `${nameBase} (original)`, {
+            color: fadedColor,
+            dash: "dash",
+            opacity: 0.9,
+            isOriginal: true
+          }),
+          makeMarkerTrace(originalValues, {
+            color: fadedColor,
+            opacity: 0.9,
+            isOriginal: true
+          }),
+          makeLineTrace(modifiedValues, `${nameBase} (modified)`, {
             color: seriesColor,
             dash: "solid"
+          }),
+          makeMarkerTrace(modifiedValues, {
+            color: seriesColor
           })
         ];
       }
+      const values = displayValuesByFile[fileId] ?? seriesEntry.values;
       return [
-        makeTrace(displayValuesByFile[fileId] ?? seriesEntry.values, nameBase, {
+        makeLineTrace(values, nameBase, {
           color: seriesColor,
           dash: "solid"
+        }),
+        makeMarkerTrace(values, {
+          color: seriesColor
         })
       ];
     });
@@ -955,11 +981,11 @@ export default function Home() {
                   layout={{
                     title: `Series: ${selectedSeries} (${modeOptions.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
                     height: 520,
-                    margin: { t: 50, r: 30, l: 50, b: 120 },
+                    margin: { t: 50, r: 30, l: 50, b: 170 },
                     legend: {
                       orientation: "h",
                       x: 0,
-                      y: -0.2,
+                      y: -0.4,
                       xanchor: "left",
                       yanchor: "top"
                     },
@@ -976,11 +1002,18 @@ export default function Home() {
                       rangeslider: {
                         visible: true,
                         thickness: 0.12,
-                        bgcolor: "#9ca3af"
+                        bgcolor: "#e5e7eb"
                       },
                       range: displayRange
                         ? [displayRange.startIndex, displayRange.endIndex]
                         : undefined
+                    },
+                    xaxis2: {
+                      overlaying: "x",
+                      matches: "x",
+                      showticklabels: false,
+                      showgrid: false,
+                      zeroline: false
                     },
                     yaxis: {
                       fixedrange: true
