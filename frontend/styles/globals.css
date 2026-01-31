@@ -35,6 +35,10 @@ main {
   gap: 16px;
 }
 
+.plot-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
 .file-grid {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }

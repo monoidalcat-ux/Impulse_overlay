@@ -1083,7 +1083,7 @@ export default function Home() {
 
       <section className="card">
         <div className="section-title">2) Plot selection & time range</div>
-        <div className="grid">
+        <div className="grid plot-grid">
           <div>
             <label>Display mode</label>
             <select
@@ -1120,7 +1120,7 @@ export default function Home() {
             </datalist>
           </div>
         </div>
-        <div className="grid">
+        <div className="grid plot-grid">
           <div>
             <label>Quarter 0</label>
             <input
