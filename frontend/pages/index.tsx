@@ -1146,7 +1146,7 @@ export default function Home() {
           </div>
           <div>
             <label>&nbsp;</label>
-            <button onClick={fetchPlot} type="button">
+            <button className="plot-button" onClick={fetchPlot} type="button">
               Plot
             </button>
           </div>

@@ -39,6 +39,12 @@ main {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
+.plot-button {
+  width: auto;
+  min-width: 140px;
+  justify-self: start;
+}
+
 .file-grid {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
