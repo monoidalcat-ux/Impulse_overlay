@@ -304,22 +304,6 @@ export default function Home() {
     [displayResponse]
   );
 
-  const tickValues = useMemo(() => {
-    const labels = displayResponse?.labels ?? [];
-    const maxTicks = 12;
-    if (labels.length === 0) return [];
-    const step = labels.length > maxTicks ? Math.ceil(labels.length / maxTicks) : 1;
-    return labels
-      .map((_, index) => index)
-      .filter((index) => index % step === 0 || index === labels.length - 1);
-  }, [displayResponse]);
-
-  const tickText = useMemo(() => {
-    if (!displayResponse || tickValues.length === 0) return [];
-    return tickValues.map((index) =>
-      formatQuarterLabel(displayResponse.labels[index] ?? "").label
-    );
-  }, [displayResponse, tickValues]);
   const yearsOnAxis = useMemo(
     () =>
       periodLabels
@@ -330,14 +314,19 @@ export default function Home() {
 
   const visibleQuarterRange = useMemo(() => {
     if (!plotResponse || plotResponse.labels.length === 0) {
-      return { startIndex: 0, endIndex: 0 };
+      return { startIndex: 0, endIndex: 0, startLabel: "", endLabel: "" };
     }
     const startIndex = Math.min(
       Math.max(quarterZeroIndex, 0),
       plotResponse.labels.length - 1
     );
     const endIndex = Math.min(startIndex + 12, plotResponse.labels.length - 1);
-    return { startIndex, endIndex };
+    return {
+      startIndex,
+      endIndex,
+      startLabel: plotResponse.labels[startIndex] ?? "",
+      endLabel: plotResponse.labels[endIndex] ?? ""
+    };
   }, [plotResponse, quarterZeroIndex]);
 
   const colorByFile = useMemo(() => {
@@ -405,7 +394,7 @@ export default function Home() {
       const legendRank = legendRankByFile[fileId] ?? 0;
       const hasChanges = hasChangesByFile[fileId];
       const nameBase = seriesEntry.scenario?.trim() || fileId;
-      const xValues = displayResponse.labels.map((_, index) => index);
+      const xValues = displayResponse.labels;
       const makeTrace = (
         values: (number | null)[],
         name: string,
@@ -459,6 +448,22 @@ export default function Home() {
     legendRankByFile,
     hasChangesByFile
   ]);
+
+  const overviewPlotData = useMemo(() => {
+    if (!displayResponse) return [];
+    return displayResponse.series.map((entry) => ({
+      x: displayResponse.labels,
+      y: displayResponse.labels.map((_, index) => entry.values[index] ?? null),
+      type: "scatter",
+      mode: "lines",
+      name: entry.scenario?.trim() || entry.file,
+      showlegend: false,
+      hoverinfo: "skip",
+      line: { width: 2, color: colorByFile[entry.file] ?? "#2563eb" },
+      xaxis: "x2",
+      yaxis: "y2"
+    }));
+  }, [displayResponse, colorByFile]);
 
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
@@ -859,15 +864,16 @@ export default function Home() {
             <div className="plot-area">
               <div className="plot-panel">
                 <Plot
-                  data={plotData}
+                  data={[...plotData, ...overviewPlotData]}
                   layout={{
                     title: `Series: ${selectedSeries} (${modeOptions.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
-                    height: 520,
-                    margin: { t: 50, r: 30, l: 50, b: 120 },
+                    height: 620,
+                    margin: { t: 50, r: 30, l: 50, b: 140 },
+                    grid: { rows: 2, columns: 1, pattern: "independent", roworder: "top to bottom" },
                     legend: {
                       orientation: "h",
                       x: 0,
-                      y: -0.2,
+                      y: -0.45,
                       xanchor: "left",
                       yanchor: "top"
                     },
@@ -878,8 +884,8 @@ export default function Home() {
                         type: "rect",
                         xref: "x",
                         yref: "paper",
-                        x0: visibleQuarterRange.startIndex - 0.5,
-                        x1: visibleQuarterRange.endIndex + 0.5,
+                        x0: visibleQuarterRange.startLabel,
+                        x1: visibleQuarterRange.endLabel,
                         y0: 0,
                         y1: 1,
                         fillcolor: "rgba(148, 163, 184, 0.25)",
@@ -887,13 +893,10 @@ export default function Home() {
                       }
                     ],
                     xaxis: {
-                      tickmode: "array",
-                      tickvals: tickValues,
-                      ticktext: tickText,
-                      tickangle: -45,
+                      showticklabels: false,
                       automargin: true,
                       fixedrange: true,
-                      range: [visibleQuarterRange.startIndex, visibleQuarterRange.endIndex],
+                      range: [visibleQuarterRange.startLabel, visibleQuarterRange.endLabel],
                       rangeslider: {
                         visible: true,
                         thickness: 0.12,
@@ -902,6 +905,18 @@ export default function Home() {
                     },
                     yaxis: {
                       fixedrange: true
+                    },
+                    xaxis2: {
+                      showticklabels: true,
+                      tickangle: -45,
+                      automargin: true,
+                      tickmode: "auto",
+                      nticks: 10
+                    },
+                    yaxis2: {
+                      fixedrange: true,
+                      showticklabels: false,
+                      title: { text: "Overview" }
                     }
                   }}
                   config={{
