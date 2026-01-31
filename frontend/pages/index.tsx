@@ -516,7 +516,8 @@ export default function Home() {
         y0: 0,
         y1: 1,
         fillcolor: "rgba(203, 213, 225, 0.45)",
-        line: { width: 0 }
+        line: { width: 0 },
+        layer: "below"
       }
     ];
   }, [plotResponse, quarterZeroIndex]);
@@ -981,11 +982,11 @@ export default function Home() {
                   layout={{
                     title: `Series: ${selectedSeries} (${modeOptions.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
                     height: 520,
-                    margin: { t: 50, r: 30, l: 50, b: 170 },
+                    margin: { t: 50, r: 30, l: 50, b: 200 },
                     legend: {
                       orientation: "h",
                       x: 0,
-                      y: -0.4,
+                      y: -0.5,
                       xanchor: "left",
                       yanchor: "top"
                     },
@@ -1002,7 +1003,9 @@ export default function Home() {
                       rangeslider: {
                         visible: true,
                         thickness: 0.12,
-                        bgcolor: "#e5e7eb"
+                        bgcolor: "#e5e7eb",
+                        bordercolor: "#9ca3af",
+                        borderwidth: 1
                       },
                       range: displayRange
                         ? [displayRange.startIndex, displayRange.endIndex]
