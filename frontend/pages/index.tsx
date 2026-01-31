@@ -103,6 +103,7 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [startLabel, setStartLabel] = useState<string>("");
   const [endLabel, setEndLabel] = useState<string>("");
+  const [lockedSeries, setLockedSeries] = useState<string[]>([]);
   const selectedSheet = "Quarterly";
 
   const formatQuarterLabel = (label: string): QuarterLabel => {
@@ -293,23 +294,36 @@ export default function Home() {
 
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
-    return displayResponse.series.map((seriesEntry) => {
+    const locked: PlotResponse["series"] = [];
+    const unlocked: PlotResponse["series"] = [];
+    displayResponse.series.forEach((entry) => {
+      if (lockedSeries.includes(entry.file)) {
+        locked.push(entry);
+      } else {
+        unlocked.push(entry);
+      }
+    });
+    const orderedSeries = [...locked, ...unlocked];
+    return orderedSeries.map((seriesEntry) => {
       const alignedValues = displayResponse.labels.map(
         (_, index) => seriesEntry.values[index] ?? null
       );
+      const isLocked = lockedSeries.includes(seriesEntry.file);
       return {
         x: displayResponse.labels.map((_, index) => index),
         y: alignedValues,
         type: "scatter",
         mode: "lines+markers",
         name: seriesEntry.scenario?.trim() || seriesEntry.file,
+        opacity: isLocked ? 0.4 : 1,
         marker: { size: 8 },
         connectgaps: false,
         customdata: displayResponse.labels,
+        meta: { fileId: seriesEntry.file },
         hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       };
     });
-  }, [displayResponse]);
+  }, [displayResponse, lockedSeries]);
 
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
@@ -401,6 +415,22 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSeries, selectedFiles, startLabel, endLabel]);
 
+  useEffect(() => {
+    setLockedSeries((prev) => prev.filter((fileId) => selectedFiles.includes(fileId)));
+  }, [selectedFiles]);
+
+  const handleLegendClick = (event: {
+    curveNumber: number;
+    data?: Array<{ meta?: { fileId?: string } }>;
+  }) => {
+    const fileId = event.data?.[event.curveNumber]?.meta?.fileId;
+    if (!fileId) return false;
+    setLockedSeries((prev) =>
+      prev.includes(fileId) ? prev.filter((entry) => entry !== fileId) : [...prev, fileId]
+    );
+    return false;
+  };
+
   const updateValue = async (fileId: string, label: string, value: number) => {
     const response = await fetch(`${API_BASE}/api/input-files/edit`, {
       method: "POST",
@@ -451,10 +481,19 @@ export default function Home() {
     const point = event.points[0];
     const traceIndex = point.curveNumber;
     const pointIndex = point.pointNumber;
+    const seriesEntry = plotData[traceIndex] as { meta?: { fileId?: string } } | undefined;
+    const fileId = seriesEntry?.meta?.fileId;
+    if (!fileId) return;
+    if (lockedSeries.includes(fileId)) {
+      setStatusMessage("Series is locked. Use the legend to unlock it before editing.");
+      return;
+    }
     const rangeStartIndex = displayRange?.startIndex ?? 0;
     const rawIndex = rangeStartIndex + pointIndex;
     const currentValue =
-      point.y ?? displayResponse.series[traceIndex]?.values?.[pointIndex] ?? "";
+      point.y ??
+      displayResponse.series.find((entry) => entry.file === fileId)?.values?.[pointIndex] ??
+      "";
     const activeMode = modeOptions.find((option) => option.value === displayMode);
     const input = window.prompt(
       `Enter a new value for this datapoint (${activeMode?.label ?? "mode"}):`,
@@ -466,7 +505,7 @@ export default function Home() {
       setStatusMessage("Please enter a valid numeric value.");
       return;
     }
-    const rawSeries = plotResponse.series[traceIndex];
+    const rawSeries = plotResponse.series.find((entry) => entry.file === fileId);
     if (!rawSeries) return;
     let nextRawValue: number | null = null;
     if (displayMode === "raw") {
@@ -524,17 +563,18 @@ export default function Home() {
     }
     setPlotResponse((prev) => {
       if (!prev) return prev;
-      const updated = {
-        labels: prev.labels,
-        series: prev.series.map((entry) => ({ ...entry }))
-      };
-      const target = updated.series[traceIndex];
+      const updatedSeries = prev.series.map((entry) => ({ ...entry }));
+      const target = updatedSeries.find((entry) => entry.file === fileId);
       if (!target) return prev;
       target.values[rawIndex] = nextRawValue;
-      return updated;
+      return {
+        labels: prev.labels,
+        series: updatedSeries,
+        metadata: prev.metadata
+      };
     });
     void updateValue(
-      plotResponse.series[traceIndex].file,
+      fileId,
       plotResponse.labels[rawIndex],
       nextRawValue
     );
@@ -723,6 +763,7 @@ export default function Home() {
                     ]
                   }}
                   onClick={handlePointClick}
+                  onLegendClick={handleLegendClick}
                 />
               </div>
             </div>
