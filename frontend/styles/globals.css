@@ -164,7 +164,7 @@ button.ghost {
   min-width: 320px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
 
 .percentile-panel {
