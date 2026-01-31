@@ -981,7 +981,8 @@ export default function Home() {
                   data={plotData}
                   layout={{
                     title: `Series: ${selectedSeries} (${modeOptions.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
-                    height: 520,
+                    height: 640,
+                    width: 640,
                     margin: { t: 50, r: 30, l: 50, b: 200 },
                     legend: {
                       orientation: "h",
@@ -1002,6 +1003,7 @@ export default function Home() {
                       fixedrange: true,
                       rangeslider: {
                         visible: true,
+                        len: 1,
                         thickness: 0.12,
                         bgcolor: "#e5e7eb",
                         bordercolor: "#9ca3af",
