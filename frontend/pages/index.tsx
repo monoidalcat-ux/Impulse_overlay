@@ -162,7 +162,7 @@ export default function Home() {
     payload: PlotResponse,
     originalSeriesByFile: Record<string, Record<string, number | null>>
   ): PlotResponse => ({
-    labels: payload.labels,
+    labels: [...payload.labels],
     series: payload.series.map((entry) => ({
       ...entry,
       values: payload.labels.map((label, index) => {
@@ -170,7 +170,7 @@ export default function Home() {
         return stored ?? entry.values[index] ?? null;
       })
     })),
-    metadata: payload.metadata
+    metadata: { ...payload.metadata }
   });
 
   const fadeColor = (color: string, alpha = 0.35) => {
@@ -440,6 +440,7 @@ export default function Home() {
           color: string;
           dash?: "dash" | "solid";
           opacity?: number;
+          isOriginal?: boolean;
         }
       ) => ({
         x: xValues,
@@ -453,7 +454,7 @@ export default function Home() {
         line: { color: options.color, dash: options.dash },
         connectgaps: false,
         customdata: displayResponse.labels,
-        meta: { fileId },
+        meta: { fileId, isOriginal: options.isOriginal ?? false },
         hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       });
       if (hasChanges && originalEntry) {
@@ -461,7 +462,8 @@ export default function Home() {
           makeTrace(originalEntry.values, `${nameBase} (original)`, {
             color: fadedColor,
             dash: "dash",
-            opacity: 0.9
+            opacity: 0.9,
+            isOriginal: true
           }),
           makeTrace(seriesEntry.values, `${nameBase} (modified)`, {
             color: seriesColor,
@@ -569,9 +571,10 @@ export default function Home() {
     const nextContextKey = toSelectionKey(selectedSeries, selectedFiles);
     const shouldResetOriginal = nextContextKey !== originalContextKey;
     if (shouldResetOriginal) {
-      originalSeriesByFileRef.current = toOriginalSeriesMap(payload);
+      const originalSeriesMap = toOriginalSeriesMap(payload);
+      originalSeriesByFileRef.current = originalSeriesMap;
       setOriginalContextKey(nextContextKey);
-      setOriginalPlotResponse(payload);
+      setOriginalPlotResponse(toOriginalPlotResponse(payload, originalSeriesMap));
       setPlotResponse(payload);
       return;
     }
@@ -668,9 +671,15 @@ export default function Home() {
     const point = event.points[0];
     const traceIndex = point.curveNumber;
     const pointIndex = point.pointNumber;
-    const seriesEntry = plotData[traceIndex] as { meta?: { fileId?: string } } | undefined;
+    const seriesEntry = plotData[traceIndex] as
+      | { meta?: { fileId?: string; isOriginal?: boolean } }
+      | undefined;
     const fileId = seriesEntry?.meta?.fileId;
     if (!fileId) return;
+    if (seriesEntry?.meta?.isOriginal) {
+      setStatusMessage("Original series is read-only. Edit the solid line instead.");
+      return;
+    }
     if (lockedSeries.includes(fileId)) {
       setStatusMessage("Series is locked. Use the legend to unlock it before editing.");
       return;
