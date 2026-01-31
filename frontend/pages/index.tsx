@@ -599,7 +599,7 @@ export default function Home() {
         connectgaps: false,
         customdata: plotResponse.labels,
         meta: { fileId, isOriginal: options.isOriginal ?? false },
-        hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
+        hovertemplate: "%{customdata}<br>Value: %{y}<br>Legend: %{fullData.name}<extra></extra>"
       });
       const makeMarkerTrace = (
         values: (number | null)[],
@@ -615,7 +615,7 @@ export default function Home() {
         connectgaps: false,
         customdata: plotResponse.labels,
         meta: { fileId, isOriginal: options.isOriginal ?? false },
-        hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>",
+        hovertemplate: "%{customdata}<br>Value: %{y}<br>Legend: %{fullData.name}<extra></extra>",
         xaxis: "x2"
       });
       if (hasChanges && originalEntry) {
