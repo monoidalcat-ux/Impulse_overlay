@@ -83,8 +83,8 @@ class PlotRequest(BaseModel):
     sheet_name: Optional[str] = None
 
 
-class InputFileUploadResponse(BaseModel):
-    file: InputFileMetadata
+class InputFilesUploadResponse(BaseModel):
+    files: List[InputFileMetadata]
 
 
 class InputFileEditRequest(BaseModel):
@@ -379,8 +379,7 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
     return {"labels": columns, "series": series_payload, "metadata": metadata}
 
 
-@app.post("/api/input-files/upload", response_model=InputFileUploadResponse)
-async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResponse:
+async def _store_uploaded_file(file: UploadFile) -> InputFileMetadata:
     content = await file.read()
     filename = file.filename or "uploaded.csv"
     file_format = "xlsx" if filename.endswith(".xlsx") else "csv"
@@ -390,7 +389,10 @@ async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResp
         else:
             df = pd.read_csv(io.BytesIO(content))
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse {filename}: {exc}",
+        ) from exc
 
     file_id = filename
     if file_id in INPUT_FILES:
@@ -410,14 +412,25 @@ async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResp
             {DEFAULT_SHEET: (parsed, time_columns, metadata_df)},
             file_format,
         )
-    metadata = InputFileMetadata(
+    return InputFileMetadata(
         id=file_id,
         name=file_id,
         sheets=INPUT_FILE_SHEETS[file_id],
         series_by_sheet=INPUT_FILE_SERIES[file_id],
         columns_by_sheet=INPUT_FILE_COLUMNS[file_id],
     )
-    return InputFileUploadResponse(file=metadata)
+
+
+@app.post("/api/input-files/upload", response_model=InputFilesUploadResponse)
+async def upload_input_file(
+    files: List[UploadFile] = File(...),
+) -> InputFilesUploadResponse:
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    uploaded_files = []
+    for file in files:
+        uploaded_files.append(await _store_uploaded_file(file))
+    return InputFilesUploadResponse(files=uploaded_files)
 
 
 @app.post("/api/input-files/edit")

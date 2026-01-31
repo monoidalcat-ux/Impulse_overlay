@@ -571,21 +571,24 @@ export default function Home() {
   };
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (selectedFiles.length === 0) return;
     const formData = new FormData();
-    formData.append("file", file);
+    selectedFiles.forEach((file) => {
+      formData.append("files", file);
+    });
     const response = await fetch(`${API_BASE}/api/input-files/upload`, {
       method: "POST",
       body: formData
     });
     if (!response.ok) {
       const error = await response.json();
-      setStatusMessage(error.detail ?? "Unable to upload file.");
+      setStatusMessage(error.detail ?? "Unable to upload files.");
       return;
     }
     await loadFiles();
-    setStatusMessage(`Uploaded ${file.name}.`);
+    setStatusMessage(`Uploaded ${selectedFiles.map((file) => file.name).join(", ")}.`);
+    event.target.value = "";
   };
 
   const fetchPlot = async () => {
@@ -857,7 +860,7 @@ export default function Home() {
 
       <section className="card">
         <div className="section-title">1) Upload & available files</div>
-        <input type="file" accept=".csv,.xlsx" onChange={handleUpload} />
+        <input type="file" accept=".csv,.xlsx" multiple onChange={handleUpload} />
         {statusMessage && <p className="notice">Upload status: {statusMessage}</p>}
         {inputFiles.length === 0 && (
           <p className="notice">No input files found. Add CSVs to the test folder.</p>
