@@ -1083,7 +1083,7 @@ export default function Home() {
 
       <section className="card">
         <div className="section-title">2) Plot selection & time range</div>
-        <div className="grid">
+        <div className="grid plot-grid">
           <div>
             <label>Display mode</label>
             <select
@@ -1119,8 +1119,6 @@ export default function Home() {
               ))}
             </datalist>
           </div>
-        </div>
-        <div className="grid">
           <div>
             <label>Quarter 0</label>
             <input
@@ -1146,7 +1144,7 @@ export default function Home() {
           </div>
           <div>
             <label>&nbsp;</label>
-            <button onClick={fetchPlot} type="button">
+            <button className="plot-button" onClick={fetchPlot} type="button">
               Plot
             </button>
           </div>
