@@ -311,11 +311,6 @@ export default function Home() {
     });
   }, [displayResponse]);
 
-  const metadataEntries = useMemo(() => {
-    if (!plotResponse) return [];
-    return Object.entries(plotResponse.metadata ?? {}).filter(([, value]) => value.trim() !== "");
-  }, [plotResponse]);
-
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
     const merged = new Set<string>();
@@ -731,21 +726,6 @@ export default function Home() {
                 />
               </div>
             </div>
-            <aside className="metadata-card metadata-card--below">
-              <h4>Series metadata</h4>
-              {metadataEntries.length === 0 ? (
-                <p className="notice">No metadata found for this series.</p>
-              ) : (
-                <ul className="metadata-list">
-                  {metadataEntries.map(([key, value]) => (
-                    <li key={key}>
-                      <span>{key}</span>
-                      <strong>{value}</strong>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </aside>
             {yearsOnAxis.length > 0 && (
               <p className="notice">
                 {periodAdjective} spacing applied. Years shown: {yearsOnAxis.join(", ")}.

@@ -159,48 +159,6 @@ button.ghost {
   min-width: 320px;
 }
 
-.metadata-card {
-  flex: 0 1 260px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 16px;
-}
-
-.metadata-card--below {
-  flex: 1 1 auto;
-  margin-top: 16px;
-  width: 100%;
-}
-
-.metadata-card h4 {
-  margin-top: 0;
-}
-
-.metadata-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 10px;
-  font-size: 13px;
-}
-
-.metadata-list li {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.metadata-list span {
-  color: #6b7280;
-}
-
-.metadata-list strong {
-  color: #111827;
-  font-weight: 600;
-}
-
 .quick-range {
   display: flex;
   gap: 8px;
