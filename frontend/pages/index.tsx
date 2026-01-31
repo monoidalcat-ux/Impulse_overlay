@@ -292,6 +292,26 @@ export default function Home() {
     [periodLabels]
   );
 
+  const colorByFile = useMemo(() => {
+    if (!plotResponse) return {};
+    const palette = [
+      "#2563eb",
+      "#f97316",
+      "#16a34a",
+      "#e11d48",
+      "#7c3aed",
+      "#0d9488",
+      "#f59e0b",
+      "#3b82f6",
+      "#ec4899",
+      "#84cc16"
+    ];
+    return plotResponse.series.reduce<Record<string, string>>((acc, entry, index) => {
+      acc[entry.file] = palette[index % palette.length];
+      return acc;
+    }, {});
+  }, [plotResponse]);
+
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
     const locked: PlotResponse["series"] = [];
@@ -309,6 +329,7 @@ export default function Home() {
         (_, index) => seriesEntry.values[index] ?? null
       );
       const isLocked = lockedSeries.includes(seriesEntry.file);
+      const seriesColor = colorByFile[seriesEntry.file] ?? "#2563eb";
       return {
         x: displayResponse.labels.map((_, index) => index),
         y: alignedValues,
@@ -316,14 +337,15 @@ export default function Home() {
         mode: "lines+markers",
         name: seriesEntry.scenario?.trim() || seriesEntry.file,
         opacity: isLocked ? 0.4 : 1,
-        marker: { size: 8 },
+        marker: { size: 8, color: seriesColor },
+        line: { color: seriesColor },
         connectgaps: false,
         customdata: displayResponse.labels,
         meta: { fileId: seriesEntry.file },
         hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       };
     });
-  }, [displayResponse, lockedSeries]);
+  }, [displayResponse, lockedSeries, colorByFile]);
 
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
