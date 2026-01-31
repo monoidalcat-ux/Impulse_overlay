@@ -661,6 +661,9 @@ export default function Home() {
   }, [plotResponse, quarterZeroIndex]);
 
   const availableLabels = useMemo(() => {
+    if (plotResponse?.labels?.length) {
+      return plotResponse.labels;
+    }
     if (selectedFiles.length === 0) return [];
     const merged = new Set<string>();
     selectedFiles.forEach((fileId) => {
@@ -669,7 +672,7 @@ export default function Home() {
       labels.forEach((label) => merged.add(label));
     });
     return Array.from(merged).sort(compareLabels);
-  }, [inputFiles, selectedFiles]);
+  }, [inputFiles, selectedFiles, plotResponse]);
 
   useEffect(() => {
     if (availableLabels.length === 0) {

@@ -227,6 +227,15 @@ def _get_series_values(df: pd.DataFrame, series_name: str, columns: List[str]) -
     return values
 
 
+def _get_series_columns(
+    df: pd.DataFrame, series_name: str, columns: List[str]
+) -> List[str]:
+    if series_name not in df.index:
+        return []
+    row = df.loc[series_name].reindex(columns)
+    return [label for label, value in row.items() if pd.notna(value)]
+
+
 def _get_series_metadata(
     series_name: str, file_ids: List[str], sheet_name: str
 ) -> Dict[str, str]:
@@ -362,13 +371,19 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Unknown files: {', '.join(missing)}")
 
     sheet_name = request.sheet_name or DEFAULT_SHEET
-    primary_file = request.files[0]
-    columns = INPUT_FILE_COLUMNS.get(primary_file, {}).get(sheet_name, [])
-    if not columns:
-        raise HTTPException(status_code=400, detail="No columns available for selected sheet")
-    for file_id in request.files[1:]:
+    columns: List[str] = []
+    for file_id in request.files:
+        df = INPUT_FILES.get(file_id, {}).get(sheet_name)
+        if df is None:
+            continue
         file_columns = INPUT_FILE_COLUMNS.get(file_id, {}).get(sheet_name, [])
-        columns = _merge_columns(columns, file_columns)
+        series_columns = _get_series_columns(df, request.series_name, file_columns)
+        columns = _merge_columns(columns, series_columns)
+    if not columns:
+        raise HTTPException(
+            status_code=400,
+            detail="No columns available for the selected series",
+        )
     columns = _slice_columns(columns, request.start_label, request.end_label)
 
     series_payload = []
