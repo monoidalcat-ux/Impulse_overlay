@@ -159,6 +159,14 @@ button.ghost {
   min-width: 320px;
 }
 
+.plot-column {
+  flex: 1 1 520px;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .percentile-panel {
   flex: 0 0 360px;
   min-width: 320px;
@@ -209,7 +217,7 @@ button.ghost {
 }
 
 .percentile-calculator {
-  margin-top: 8px;
+  margin-top: 0;
   background: #ffffff;
   border: 2px solid #0f172a;
   border-radius: 28px;

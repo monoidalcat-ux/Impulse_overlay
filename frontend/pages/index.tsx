@@ -1154,7 +1154,8 @@ export default function Home() {
         {plotResponse && (
           <>
             <div className="plot-area">
-              <div className="plot-panel">
+              <div className="plot-column">
+                <div className="plot-panel">
                 <Plot
                   data={plotData}
                   layout={{
@@ -1218,6 +1219,30 @@ export default function Home() {
                   onLegendClick={handleLegendClick}
                   onRelayout={handleRangeRelayout}
                 />
+                </div>
+                <div className="percentile-calculator">
+                  <div className="percentile-calculator-input">
+                    <label htmlFor="percentile-input">Percentile rank input</label>
+                    <input
+                      id="percentile-input"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Enter a value"
+                      value={percentileInput}
+                      onChange={(event) => setPercentileInput(event.target.value)}
+                    />
+                  </div>
+                  {[2, 3, 4, 5].map((order) => (
+                    <div key={order} className="percentile-calculator-output">
+                      <span>
+                        Δ<sup>{order}</sup>Q
+                      </span>
+                      <strong>
+                        {formatPercentileRank(historicalPercentileRanks[order] ?? null)}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
               </div>
               <div className="percentile-panel">
                 <div className="percentile-title">Historical Δ²Q–Δ⁵Q percentiles</div>
@@ -1248,29 +1273,6 @@ export default function Home() {
                     ))}
                   </tbody>
                 </table>
-                <div className="percentile-calculator">
-                  <div className="percentile-calculator-input">
-                    <label htmlFor="percentile-input">Percentile rank input</label>
-                    <input
-                      id="percentile-input"
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="Enter a value"
-                      value={percentileInput}
-                      onChange={(event) => setPercentileInput(event.target.value)}
-                    />
-                  </div>
-                  {[2, 3, 4, 5].map((order) => (
-                    <div key={order} className="percentile-calculator-output">
-                      <span>
-                        Δ<sup>{order}</sup>Q
-                      </span>
-                      <strong>
-                        {formatPercentileRank(historicalPercentileRanks[order] ?? null)}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
             <p className="notice">
