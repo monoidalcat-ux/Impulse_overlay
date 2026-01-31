@@ -1159,7 +1159,7 @@ export default function Home() {
                   data={plotData}
                   layout={{
                     title: `Series: ${selectedSeries} (${modeOptions.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
-                    height: 520,
+                    height: 640,
                     margin: { t: 50, r: 30, l: 50, b: 200 },
                     legend: {
                       orientation: "h",
@@ -1248,30 +1248,30 @@ export default function Home() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </div>
-            <div className="percentile-calculator">
-              <div className="percentile-calculator-input">
-                <label htmlFor="percentile-input">Percentile rank input</label>
-                <input
-                  id="percentile-input"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="Enter a value"
-                  value={percentileInput}
-                  onChange={(event) => setPercentileInput(event.target.value)}
-                />
-              </div>
-              {[2, 3, 4, 5].map((order) => (
-                <div key={order} className="percentile-calculator-output">
-                  <span>
-                    Δ<sup>{order}</sup>Q
-                  </span>
-                  <strong>
-                    {formatPercentileRank(historicalPercentileRanks[order] ?? null)}
-                  </strong>
+                <div className="percentile-calculator">
+                  <div className="percentile-calculator-input">
+                    <label htmlFor="percentile-input">Percentile rank input</label>
+                    <input
+                      id="percentile-input"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Enter a value"
+                      value={percentileInput}
+                      onChange={(event) => setPercentileInput(event.target.value)}
+                    />
+                  </div>
+                  {[2, 3, 4, 5].map((order) => (
+                    <div key={order} className="percentile-calculator-output">
+                      <span>
+                        Δ<sup>{order}</sup>Q
+                      </span>
+                      <strong>
+                        {formatPercentileRank(historicalPercentileRanks[order] ?? null)}
+                      </strong>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
             <p className="notice">
               Note: the percentile table and calculator can diverge when the historical window is
