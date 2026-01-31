@@ -1,5 +1,5 @@
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const Plot = dynamic(() => import("react-plotly.js"), {
   ssr: false,
@@ -99,11 +99,14 @@ export default function Home() {
   const [selectedSeries, setSelectedSeries] = useState<string>("");
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [plotResponse, setPlotResponse] = useState<PlotResponse | null>(null);
+  const [originalPlotResponse, setOriginalPlotResponse] = useState<PlotResponse | null>(null);
+  const [originalContextKey, setOriginalContextKey] = useState<string>("");
   const [displayMode, setDisplayMode] = useState<DisplayMode>("raw");
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [startLabel, setStartLabel] = useState<string>("");
   const [endLabel, setEndLabel] = useState<string>("");
   const [lockedSeries, setLockedSeries] = useState<string[]>([]);
+  const originalSeriesByFileRef = useRef<Record<string, Record<string, number | null>>>({});
   const selectedSheet = "Quarterly";
 
   const formatQuarterLabel = (label: string): QuarterLabel => {
@@ -140,6 +143,47 @@ export default function Home() {
       return leftDate - rightDate;
     }
     return left.localeCompare(right);
+  };
+
+  const toSelectionKey = (seriesName: string, files: string[]) =>
+    `${seriesName}::${[...files].sort().join(",")}`;
+
+  const toOriginalSeriesMap = (payload: PlotResponse) =>
+    payload.series.reduce<Record<string, Record<string, number | null>>>((acc, entry) => {
+      const labelMap: Record<string, number | null> = {};
+      payload.labels.forEach((label, index) => {
+        labelMap[label] = entry.values[index] ?? null;
+      });
+      acc[entry.file] = labelMap;
+      return acc;
+    }, {});
+
+  const toOriginalPlotResponse = (
+    payload: PlotResponse,
+    originalSeriesByFile: Record<string, Record<string, number | null>>
+  ): PlotResponse => ({
+    labels: [...payload.labels],
+    series: payload.series.map((entry) => ({
+      ...entry,
+      values: payload.labels.map((label, index) => {
+        const stored = originalSeriesByFile[entry.file]?.[label];
+        return stored ?? entry.values[index] ?? null;
+      })
+    })),
+    metadata: { ...payload.metadata }
+  });
+
+  const fadeColor = (color: string, alpha = 0.35) => {
+    if (!color.startsWith("#") || (color.length !== 7 && color.length !== 4)) {
+      return color;
+    }
+    const hex = color.length === 4
+      ? `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`
+      : color;
+    const red = Number.parseInt(hex.slice(1, 3), 16);
+    const green = Number.parseInt(hex.slice(3, 5), 16);
+    const blue = Number.parseInt(hex.slice(5, 7), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
   };
 
   const loadFiles = async () => {
@@ -263,6 +307,37 @@ export default function Home() {
     };
   }, [plotResponse, displayRange, displayMode]);
 
+  const originalDisplayResponse = useMemo(() => {
+    if (!originalPlotResponse) return null;
+    const range = displayRange ?? {
+      startIndex: 0,
+      endIndex: originalPlotResponse.labels.length - 1
+    };
+    const slice = (values: (number | null)[]) =>
+      values.slice(range.startIndex, range.endIndex + 1);
+    const needsHistory = [
+      "quarterly_change",
+      "quarterly_change_percent",
+      "year_over_year",
+      "year_over_year_percent"
+    ].includes(displayMode);
+    return {
+      ...originalPlotResponse,
+      labels: slice(originalPlotResponse.labels),
+      series: originalPlotResponse.series.map((entry) => {
+        if (needsHistory) {
+          const derived = deriveSeriesValues(entry.values, displayMode, periodsPerYear);
+          return { ...entry, values: slice(derived) };
+        }
+        const slicedValues = slice(entry.values);
+        return {
+          ...entry,
+          values: deriveSeriesValues(slicedValues, displayMode, periodsPerYear)
+        };
+      })
+    };
+  }, [originalPlotResponse, displayRange, displayMode]);
+
   const periodLabels = useMemo(
     () => displayResponse?.labels.map((label) => formatQuarterLabel(label)) ?? [],
     [displayResponse]
@@ -320,42 +395,97 @@ export default function Home() {
     }, {});
   }, [plotResponse]);
 
+  const hasChangesByFile = useMemo(() => {
+    if (!plotResponse || !originalPlotResponse) return {};
+    return plotResponse.series.reduce<Record<string, boolean>>((acc, entry) => {
+      const originalEntry = originalPlotResponse.series.find((item) => item.file === entry.file);
+      if (!originalEntry) {
+        acc[entry.file] = false;
+        return acc;
+      }
+      acc[entry.file] = entry.values.some(
+        (value, index) => value !== originalEntry.values[index]
+      );
+      return acc;
+    }, {});
+  }, [plotResponse, originalPlotResponse]);
+
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
-    const locked: PlotResponse["series"] = [];
-    const unlocked: PlotResponse["series"] = [];
+    const locked: string[] = [];
+    const unlocked: string[] = [];
     displayResponse.series.forEach((entry) => {
       if (lockedSeries.includes(entry.file)) {
-        locked.push(entry);
+        locked.push(entry.file);
       } else {
-        unlocked.push(entry);
+        unlocked.push(entry.file);
       }
     });
-    const orderedSeries = [...locked, ...unlocked];
-    return orderedSeries.map((seriesEntry) => {
-      const alignedValues = displayResponse.labels.map(
-        (_, index) => seriesEntry.values[index] ?? null
-      );
-      const isLocked = lockedSeries.includes(seriesEntry.file);
-      const seriesColor = colorByFile[seriesEntry.file] ?? "#2563eb";
-      const legendRank = legendRankByFile[seriesEntry.file] ?? 0;
-      return {
-        x: displayResponse.labels.map((_, index) => index),
-        y: alignedValues,
+    const orderedFiles = [...locked, ...unlocked];
+    return orderedFiles.flatMap((fileId) => {
+      const seriesEntry = displayResponse.series.find((entry) => entry.file === fileId);
+      if (!seriesEntry) return [];
+      const originalEntry = originalDisplayResponse?.series.find((entry) => entry.file === fileId);
+      const isLocked = lockedSeries.includes(fileId);
+      const seriesColor = colorByFile[fileId] ?? "#2563eb";
+      const fadedColor = fadeColor(seriesColor);
+      const legendRank = legendRankByFile[fileId] ?? 0;
+      const hasChanges = hasChangesByFile[fileId];
+      const nameBase = seriesEntry.scenario?.trim() || fileId;
+      const xValues = displayResponse.labels.map((_, index) => index);
+      const makeTrace = (
+        values: (number | null)[],
+        name: string,
+        options: {
+          color: string;
+          dash?: "dash" | "solid";
+          opacity?: number;
+          isOriginal?: boolean;
+        }
+      ) => ({
+        x: xValues,
+        y: displayResponse.labels.map((_, index) => values[index] ?? null),
         type: "scatter",
         mode: "lines+markers",
-        name: seriesEntry.scenario?.trim() || seriesEntry.file,
+        name,
         legendrank: legendRank,
-        opacity: isLocked ? 0.4 : 1,
-        marker: { size: 8, color: seriesColor },
-        line: { color: seriesColor },
+        opacity: isLocked ? 0.4 : options.opacity ?? 1,
+        marker: { size: 8, color: options.color },
+        line: { color: options.color, dash: options.dash },
         connectgaps: false,
         customdata: displayResponse.labels,
-        meta: { fileId: seriesEntry.file },
+        meta: { fileId, isOriginal: options.isOriginal ?? false },
         hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
-      };
+      });
+      if (hasChanges && originalEntry) {
+        return [
+          makeTrace(originalEntry.values, `${nameBase} (original)`, {
+            color: fadedColor,
+            dash: "dash",
+            opacity: 0.9,
+            isOriginal: true
+          }),
+          makeTrace(seriesEntry.values, `${nameBase} (modified)`, {
+            color: seriesColor,
+            dash: "solid"
+          })
+        ];
+      }
+      return [
+        makeTrace(seriesEntry.values, nameBase, {
+          color: seriesColor,
+          dash: "solid"
+        })
+      ];
     });
-  }, [displayResponse, lockedSeries, colorByFile, legendRankByFile]);
+  }, [
+    displayResponse,
+    originalDisplayResponse,
+    lockedSeries,
+    colorByFile,
+    legendRankByFile,
+    hasChangesByFile
+  ]);
 
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
@@ -438,6 +568,28 @@ export default function Home() {
       return;
     }
     const payload = (await response.json()) as PlotResponse;
+    const nextContextKey = toSelectionKey(selectedSeries, selectedFiles);
+    const shouldResetOriginal = nextContextKey !== originalContextKey;
+    if (shouldResetOriginal) {
+      const originalSeriesMap = toOriginalSeriesMap(payload);
+      originalSeriesByFileRef.current = originalSeriesMap;
+      setOriginalContextKey(nextContextKey);
+      setOriginalPlotResponse(toOriginalPlotResponse(payload, originalSeriesMap));
+      setPlotResponse(payload);
+      return;
+    }
+    const originalSeriesByFile = originalSeriesByFileRef.current;
+    payload.series.forEach((entry) => {
+      if (!originalSeriesByFile[entry.file]) {
+        originalSeriesByFile[entry.file] = {};
+      }
+      payload.labels.forEach((label, index) => {
+        if (!(label in originalSeriesByFile[entry.file])) {
+          originalSeriesByFile[entry.file][label] = entry.values[index] ?? null;
+        }
+      });
+    });
+    setOriginalPlotResponse(toOriginalPlotResponse(payload, originalSeriesByFile));
     setPlotResponse(payload);
   };
 
@@ -480,9 +632,7 @@ export default function Home() {
       setStatusMessage(error.detail ?? "Unable to update value.");
       return;
     }
-    if (plotResponse) {
-      await fetchPlot();
-    }
+    setStatusMessage(`Updated ${fileId} at ${label}.`);
   };
 
   const deleteInputFile = async (fileId: string) => {
@@ -500,9 +650,17 @@ export default function Home() {
       if (!prev) return prev;
       const updatedSeries = prev.series.filter((entry) => entry.file !== fileId);
       return updatedSeries.length
-        ? { labels: prev.labels, series: updatedSeries }
+        ? { labels: prev.labels, series: updatedSeries, metadata: prev.metadata }
         : null;
     });
+    setOriginalPlotResponse((prev) => {
+      if (!prev) return prev;
+      const updatedSeries = prev.series.filter((entry) => entry.file !== fileId);
+      return updatedSeries.length
+        ? { labels: prev.labels, series: updatedSeries, metadata: prev.metadata }
+        : null;
+    });
+    delete originalSeriesByFileRef.current[fileId];
     setStatusMessage(`Removed ${fileId}.`);
   };
 
@@ -513,9 +671,15 @@ export default function Home() {
     const point = event.points[0];
     const traceIndex = point.curveNumber;
     const pointIndex = point.pointNumber;
-    const seriesEntry = plotData[traceIndex] as { meta?: { fileId?: string } } | undefined;
+    const seriesEntry = plotData[traceIndex] as
+      | { meta?: { fileId?: string; isOriginal?: boolean } }
+      | undefined;
     const fileId = seriesEntry?.meta?.fileId;
     if (!fileId) return;
+    if (seriesEntry?.meta?.isOriginal) {
+      setStatusMessage("Original series is read-only. Edit the solid line instead.");
+      return;
+    }
     if (lockedSeries.includes(fileId)) {
       setStatusMessage("Series is locked. Use the legend to unlock it before editing.");
       return;
