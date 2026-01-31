@@ -1119,8 +1119,6 @@ export default function Home() {
               ))}
             </datalist>
           </div>
-        </div>
-        <div className="grid plot-grid">
           <div>
             <label>Quarter 0</label>
             <input
