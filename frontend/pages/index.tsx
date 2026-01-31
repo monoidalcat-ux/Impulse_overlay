@@ -52,7 +52,8 @@ const isNumericValue = (value: number | null | undefined): value is number =>
 const deriveSeriesValues = (
   values: (number | null)[],
   mode: DisplayMode,
-  periodsPerYear: number
+  periodsPerYear: number,
+  baselineIndex = 0
 ) => {
   if (mode === "raw") {
     return [...values];
@@ -84,11 +85,13 @@ const deriveSeriesValues = (
       );
     }
     if (mode === "since_start") {
-      const baseline = array[0];
+      if (index < baselineIndex) return null;
+      const baseline = array[baselineIndex];
       if (!isNumericValue(baseline)) return null;
       return value - baseline;
     }
-    const baseline = array[0];
+    if (index < baselineIndex) return null;
+    const baseline = array[baselineIndex];
     if (!isNumericValue(baseline) || baseline === 0) return null;
     return ((value - baseline) / baseline) * 100;
   });
@@ -282,114 +285,40 @@ export default function Home() {
     return { startIndex: 0, endIndex: plotResponse.labels.length - 1 };
   }, [plotResponse, visibleRange]);
 
-  const displayResponse = useMemo(() => {
-    if (!plotResponse) return null;
-    const range = displayRange ?? { startIndex: 0, endIndex: plotResponse.labels.length - 1 };
-    const slice = (values: (number | null)[]) =>
-      values.slice(range.startIndex, range.endIndex + 1);
-    const needsHistory = [
-      "quarterly_change",
-      "quarterly_change_percent",
-      "year_over_year",
-      "year_over_year_percent"
-    ].includes(displayMode);
-    return {
-      ...plotResponse,
-      labels: slice(plotResponse.labels),
-      series: plotResponse.series.map((entry) => {
-        if (needsHistory) {
-          const derived = deriveSeriesValues(entry.values, displayMode, periodsPerYear);
-          return { ...entry, values: slice(derived) };
-        }
-        const slicedValues = slice(entry.values);
-        return {
-          ...entry,
-          values: deriveSeriesValues(slicedValues, displayMode, periodsPerYear)
-        };
-      })
-    };
-  }, [plotResponse, displayRange, displayMode]);
+  const displayValuesByFile = useMemo(() => {
+    if (!plotResponse) return {};
+    return plotResponse.series.reduce<Record<string, (number | null)[]>>((acc, entry) => {
+      acc[entry.file] = deriveSeriesValues(
+        entry.values,
+        displayMode,
+        periodsPerYear,
+        quarterZeroIndex
+      );
+      return acc;
+    }, {});
+  }, [plotResponse, displayMode, periodsPerYear, quarterZeroIndex]);
 
-  const originalDisplayResponse = useMemo(() => {
-    if (!originalPlotResponse) return null;
-    const range = displayRange ?? {
-      startIndex: 0,
-      endIndex: originalPlotResponse.labels.length - 1
-    };
-    const slice = (values: (number | null)[]) =>
-      values.slice(range.startIndex, range.endIndex + 1);
-    const needsHistory = [
-      "quarterly_change",
-      "quarterly_change_percent",
-      "year_over_year",
-      "year_over_year_percent"
-    ].includes(displayMode);
-    return {
-      ...originalPlotResponse,
-      labels: slice(originalPlotResponse.labels),
-      series: originalPlotResponse.series.map((entry) => {
-        if (needsHistory) {
-          const derived = deriveSeriesValues(entry.values, displayMode, periodsPerYear);
-          return { ...entry, values: slice(derived) };
-        }
-        const slicedValues = slice(entry.values);
-        return {
-          ...entry,
-          values: deriveSeriesValues(slicedValues, displayMode, periodsPerYear)
-        };
-      })
-    };
-  }, [originalPlotResponse, displayRange, displayMode]);
+  const originalDisplayValuesByFile = useMemo(() => {
+    if (!originalPlotResponse) return {};
+    return originalPlotResponse.series.reduce<Record<string, (number | null)[]>>((acc, entry) => {
+      acc[entry.file] = deriveSeriesValues(
+        entry.values,
+        displayMode,
+        periodsPerYear,
+        quarterZeroIndex
+      );
+      return acc;
+    }, {});
+  }, [originalPlotResponse, displayMode, periodsPerYear, quarterZeroIndex]);
 
-  const overviewResponse = useMemo(() => {
-    if (!plotResponse) return null;
-    const needsHistory = [
-      "quarterly_change",
-      "quarterly_change_percent",
-      "year_over_year",
-      "year_over_year_percent"
-    ].includes(displayMode);
-    return {
-      ...plotResponse,
-      series: plotResponse.series.map((entry) => {
-        if (needsHistory) {
-          const derived = deriveSeriesValues(entry.values, displayMode, periodsPerYear);
-          return { ...entry, values: derived };
-        }
-        return {
-          ...entry,
-          values: deriveSeriesValues(entry.values, displayMode, periodsPerYear)
-        };
-      })
-    };
-  }, [plotResponse, displayMode]);
-
-  const originalOverviewResponse = useMemo(() => {
-    if (!originalPlotResponse) return null;
-    const needsHistory = [
-      "quarterly_change",
-      "quarterly_change_percent",
-      "year_over_year",
-      "year_over_year_percent"
-    ].includes(displayMode);
-    return {
-      ...originalPlotResponse,
-      series: originalPlotResponse.series.map((entry) => {
-        if (needsHistory) {
-          const derived = deriveSeriesValues(entry.values, displayMode, periodsPerYear);
-          return { ...entry, values: derived };
-        }
-        return {
-          ...entry,
-          values: deriveSeriesValues(entry.values, displayMode, periodsPerYear)
-        };
-      })
-    };
-  }, [originalPlotResponse, displayMode]);
+  const displayLabels = useMemo(() => {
+    if (!plotResponse || !displayRange) return [];
+    return plotResponse.labels.slice(displayRange.startIndex, displayRange.endIndex + 1);
+  }, [plotResponse, displayRange]);
 
   const periodLabels = useMemo(
-    () => displayResponse?.labels.map((label) => formatQuarterLabel(label)) ?? [],
-    [displayResponse]
+    () => displayLabels.map((label) => formatQuarterLabel(label)),
+    [displayLabels]
   );
 
   const tickValues = useMemo(() => {
@@ -466,10 +395,10 @@ export default function Home() {
   }, [plotResponse, originalPlotResponse]);
 
   const plotData = useMemo(() => {
-    if (!displayResponse) return [];
+    if (!plotResponse) return [];
     const locked: string[] = [];
     const unlocked: string[] = [];
-    displayResponse.series.forEach((entry) => {
+    plotResponse.series.forEach((entry) => {
       if (lockedSeries.includes(entry.file)) {
         locked.push(entry.file);
       } else {
@@ -478,17 +407,16 @@ export default function Home() {
     });
     const orderedFiles = [...locked, ...unlocked];
     return orderedFiles.flatMap((fileId) => {
-      const seriesEntry = displayResponse.series.find((entry) => entry.file === fileId);
+      const seriesEntry = plotResponse.series.find((entry) => entry.file === fileId);
       if (!seriesEntry) return [];
-      const originalEntry = originalDisplayResponse?.series.find((entry) => entry.file === fileId);
+      const originalEntry = originalPlotResponse?.series.find((entry) => entry.file === fileId);
       const isLocked = lockedSeries.includes(fileId);
       const seriesColor = colorByFile[fileId] ?? "#2563eb";
       const fadedColor = fadeColor(seriesColor);
       const legendRank = legendRankByFile[fileId] ?? 0;
       const hasChanges = hasChangesByFile[fileId];
       const nameBase = seriesEntry.scenario?.trim() || fileId;
-      const rangeStart = displayRange?.startIndex ?? 0;
-      const xValues = displayResponse.labels.map((_, index) => rangeStart + index);
+      const xValues = plotResponse.labels.map((_, index) => index);
       const makeTrace = (
         values: (number | null)[],
         name: string,
@@ -500,7 +428,7 @@ export default function Home() {
         }
       ) => ({
         x: xValues,
-        y: displayResponse.labels.map((_, index) => values[index] ?? null),
+        y: plotResponse.labels.map((_, index) => values[index] ?? null),
         type: "scatter",
         mode: "lines+markers",
         name,
@@ -509,111 +437,39 @@ export default function Home() {
         marker: { size: 8, color: options.color },
         line: { color: options.color, dash: options.dash },
         connectgaps: false,
-        customdata: displayResponse.labels,
+        customdata: plotResponse.labels,
         meta: { fileId, isOriginal: options.isOriginal ?? false },
         hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       });
       if (hasChanges && originalEntry) {
         return [
-          makeTrace(originalEntry.values, `${nameBase} (original)`, {
-            color: fadedColor,
-            dash: "dash",
-            opacity: 0.9,
-            isOriginal: true
-          }),
-          makeTrace(seriesEntry.values, `${nameBase} (modified)`, {
+          makeTrace(
+            originalDisplayValuesByFile[fileId] ?? originalEntry.values,
+            `${nameBase} (original)`,
+            {
+              color: fadedColor,
+              dash: "dash",
+              opacity: 0.9,
+              isOriginal: true
+            }
+          ),
+          makeTrace(displayValuesByFile[fileId] ?? seriesEntry.values, `${nameBase} (modified)`, {
             color: seriesColor,
             dash: "solid"
           })
         ];
       }
       return [
-        makeTrace(seriesEntry.values, nameBase, {
+        makeTrace(displayValuesByFile[fileId] ?? seriesEntry.values, nameBase, {
           color: seriesColor,
           dash: "solid"
         })
       ];
     });
   }, [
-    displayResponse,
-    originalDisplayResponse,
-    displayRange,
-    lockedSeries,
-    colorByFile,
-    legendRankByFile,
-    hasChangesByFile
-  ]);
-
-  const overviewPlotData = useMemo(() => {
-    if (!overviewResponse) return [];
-    const locked: string[] = [];
-    const unlocked: string[] = [];
-    overviewResponse.series.forEach((entry) => {
-      if (lockedSeries.includes(entry.file)) {
-        locked.push(entry.file);
-      } else {
-        unlocked.push(entry.file);
-      }
-    });
-    const orderedFiles = [...locked, ...unlocked];
-    return orderedFiles.flatMap((fileId) => {
-      const seriesEntry = overviewResponse.series.find((entry) => entry.file === fileId);
-      if (!seriesEntry) return [];
-      const originalEntry = originalOverviewResponse?.series.find((entry) => entry.file === fileId);
-      const isLocked = lockedSeries.includes(fileId);
-      const seriesColor = colorByFile[fileId] ?? "#2563eb";
-      const fadedColor = fadeColor(seriesColor);
-      const legendRank = legendRankByFile[fileId] ?? 0;
-      const hasChanges = hasChangesByFile[fileId];
-      const nameBase = seriesEntry.scenario?.trim() || fileId;
-      const xValues = overviewResponse.labels.map((_, index) => index);
-      const makeTrace = (
-        values: (number | null)[],
-        name: string,
-        options: {
-          color: string;
-          dash?: "dash" | "solid";
-          opacity?: number;
-          isOriginal?: boolean;
-        }
-      ) => ({
-        x: xValues,
-        y: overviewResponse.labels.map((_, index) => values[index] ?? null),
-        type: "scatter",
-        mode: "lines",
-        name,
-        legendrank: legendRank,
-        opacity: isLocked ? 0.4 : options.opacity ?? 1,
-        line: { color: options.color, dash: options.dash },
-        connectgaps: false,
-        customdata: overviewResponse.labels,
-        meta: { fileId, isOriginal: options.isOriginal ?? false },
-        hoverinfo: "skip"
-      });
-      if (hasChanges && originalEntry) {
-        return [
-          makeTrace(originalEntry.values, `${nameBase} (original)`, {
-            color: fadedColor,
-            dash: "dash",
-            opacity: 0.9,
-            isOriginal: true
-          }),
-          makeTrace(seriesEntry.values, `${nameBase} (modified)`, {
-            color: seriesColor,
-            dash: "solid"
-          })
-        ];
-      }
-      return [
-        makeTrace(seriesEntry.values, nameBase, {
-          color: seriesColor,
-          dash: "solid"
-        })
-      ];
-    });
-  }, [
-    overviewResponse,
-    originalOverviewResponse,
+    plotResponse,
+    displayValuesByFile,
+    originalDisplayValuesByFile,
     lockedSeries,
     colorByFile,
     legendRankByFile,
@@ -826,7 +682,7 @@ export default function Home() {
   const handlePointClick = (event: {
     points?: Array<{ curveNumber: number; pointNumber: number; y?: number | null }>;
   }) => {
-    if (!plotResponse || !displayResponse || !event.points || event.points.length === 0) return;
+    if (!plotResponse || !event.points || event.points.length === 0) return;
     const point = event.points[0];
     const traceIndex = point.curveNumber;
     const pointIndex = point.pointNumber;
@@ -843,11 +699,11 @@ export default function Home() {
       setStatusMessage("Series is locked. Use the legend to unlock it before editing.");
       return;
     }
-    const rangeStartIndex = displayRange?.startIndex ?? 0;
-    const rawIndex = rangeStartIndex + pointIndex;
+    const baselineIndex = quarterZeroIndex;
+    const rawIndex = pointIndex;
     const currentValue =
       point.y ??
-      displayResponse.series.find((entry) => entry.file === fileId)?.values?.[pointIndex] ??
+      displayValuesByFile[fileId]?.[pointIndex] ??
       "";
     const activeMode = modeOptions.find((option) => option.value === displayMode);
     const input = window.prompt(
@@ -898,14 +754,14 @@ export default function Home() {
       }
       nextRawValue = prior * (1 + nextValue / 100);
     } else if (displayMode === "since_start") {
-      const baseline = rawSeries.values[rangeStartIndex];
+      const baseline = rawSeries.values[baselineIndex];
       if (!isNumericValue(baseline)) {
         setStatusMessage(`Change vs. first ${periodNoun} needs the first value to be set.`);
         return;
       }
       nextRawValue = baseline + nextValue;
     } else {
-      const baseline = rawSeries.values[rangeStartIndex];
+      const baseline = rawSeries.values[baselineIndex];
       if (!isNumericValue(baseline) || baseline === 0) {
         setStatusMessage(`Percent change vs. first ${periodNoun} needs a non-zero first value.`);
         return;
@@ -935,7 +791,7 @@ export default function Home() {
     );
   };
 
-  const handleOverviewRelayout = (event: Record<string, unknown>) => {
+  const handleRangeRelayout = (event: Record<string, unknown>) => {
     if (!plotResponse || plotResponse.labels.length === 0) return;
     const rangeFromEvent = event["xaxis.range"];
     const startValue =
@@ -1117,6 +973,11 @@ export default function Home() {
                       tickangle: -45,
                       automargin: true,
                       fixedrange: true,
+                      rangeslider: {
+                        visible: true,
+                        thickness: 0.12,
+                        bgcolor: "#9ca3af"
+                      },
                       range: displayRange
                         ? [displayRange.startIndex, displayRange.endIndex]
                         : undefined
@@ -1141,40 +1002,7 @@ export default function Home() {
                   }}
                   onClick={handlePointClick}
                   onLegendClick={handleLegendClick}
-                />
-                <Plot
-                  data={overviewPlotData}
-                  layout={{
-                    height: 180,
-                    margin: { t: 10, r: 30, l: 50, b: 30 },
-                    showlegend: false,
-                    hovermode: false,
-                    dragmode: false,
-                    xaxis: {
-                      range: displayRange
-                        ? [displayRange.startIndex, displayRange.endIndex]
-                        : undefined,
-                      rangeslider: {
-                        visible: true,
-                        thickness: 0.35,
-                        bgcolor: "#9ca3af"
-                      },
-                      fixedrange: false,
-                      showticklabels: false,
-                      showgrid: false
-                    },
-                    yaxis: {
-                      fixedrange: true,
-                      showticklabels: false,
-                      showgrid: false
-                    }
-                  }}
-                  config={{
-                    scrollZoom: false,
-                    doubleClick: false,
-                    displayModeBar: false
-                  }}
-                  onRelayout={handleOverviewRelayout}
+                  onRelayout={handleRangeRelayout}
                 />
               </div>
             </div>
