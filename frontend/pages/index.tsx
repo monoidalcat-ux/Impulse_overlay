@@ -926,6 +926,71 @@ export default function Home() {
     setStatusMessage(`Removed ${fileId}.`);
   };
 
+  const handleDownload = async (file: InputFile) => {
+    const downloadUrl = `${API_BASE}/api/input-files/${file.id}/download`;
+    setStatusMessage("");
+    const picker = (window as Window & {
+      showSaveFilePicker?: (options?: {
+        suggestedName?: string;
+        types?: Array<{
+          description?: string;
+          accept: Record<string, string[]>;
+        }>;
+      }) => Promise<{
+        createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }>;
+      }>;
+    }).showSaveFilePicker;
+    if (picker) {
+      try {
+        const handle = await picker({
+          suggestedName: file.name,
+          types: [
+            {
+              description: "Data file",
+              accept: {
+                "text/csv": [".csv"],
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"]
+              }
+            }
+          ]
+        });
+        const response = await fetch(downloadUrl);
+        if (!response.ok) {
+          const error = await response.json();
+          setStatusMessage(error.detail ?? "Unable to download file.");
+          return;
+        }
+        const blob = await response.blob();
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        setStatusMessage("File saved.");
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setStatusMessage("Unable to save file.");
+        return;
+      }
+    }
+    const response = await fetch(downloadUrl);
+    if (!response.ok) {
+      const error = await response.json();
+      setStatusMessage(error.detail ?? "Unable to download file.");
+      return;
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  };
+
   const handlePointClick = (event: {
     points?: Array<{ curveNumber: number; pointNumber: number; y?: number | null }>;
   }) => {
@@ -1099,8 +1164,11 @@ export default function Home() {
                   <div className="file-actions">
                     <a
                       className="ghost-button action-download"
-                      href={`${API_BASE}/api/input-files/${file.id}/download`}
-                      download
+                      href="#"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void handleDownload(file);
+                      }}
                     >
                       Download
                     </a>
