@@ -159,6 +159,55 @@ button.ghost {
   min-width: 320px;
 }
 
+.percentile-panel {
+  flex: 0 0 280px;
+  min-width: 240px;
+  background: #f8fafc;
+  border-radius: 16px;
+  padding: 18px;
+  border: 2px solid #0f172a;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
+}
+
+.percentile-title {
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.percentile-subtitle {
+  font-size: 12px;
+  color: #475569;
+  margin-bottom: 12px;
+}
+
+.percentile-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 8px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.percentile-table th {
+  font-weight: 600;
+  text-align: left;
+  padding-right: 4px;
+  white-space: nowrap;
+}
+
+.percentile-table thead th {
+  text-align: center;
+}
+
+.percentile-table td {
+  background: #ffffff;
+  border: 2px solid #0f172a;
+  border-radius: 12px;
+  padding: 6px 8px;
+  min-width: 56px;
+}
+
 .rangeslider .rangeslider-mask {
   fill: rgba(255, 255, 255, 0.5) !important;
 }

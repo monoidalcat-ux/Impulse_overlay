@@ -49,10 +49,17 @@ type DisplayMode =
   | "since_start"
   | "since_start_percent";
 
+type PercentileBucket = {
+  order: number;
+  values: Record<number, number | null>;
+};
+
 const API_BASE = "http://localhost:8000";
 
 const isNumericValue = (value: number | null | undefined): value is number =>
   typeof value === "number" && !Number.isNaN(value);
+
+const percentileLevels = [99, 95, 90, 75, 50, 25, 10, 5, 1];
 
 const deriveSeriesValues = (
   values: (number | null)[],
@@ -100,6 +107,37 @@ const deriveSeriesValues = (
     if (!isNumericValue(baseline) || baseline === 0) return null;
     return ((value - baseline) / baseline) * 100;
   });
+};
+
+const calculateDifferences = (values: (number | null)[], order: number): number[] => {
+  let current = [...values];
+  for (let step = 0; step < order; step += 1) {
+    const next: (number | null)[] = [];
+    for (let index = 1; index < current.length; index += 1) {
+      const currentValue = current[index];
+      const previousValue = current[index - 1];
+      if (!isNumericValue(currentValue) || !isNumericValue(previousValue)) {
+        next.push(null);
+      } else {
+        next.push(currentValue - previousValue);
+      }
+    }
+    current = next;
+  }
+  return current.filter(isNumericValue);
+};
+
+const calculatePercentile = (values: number[], percentile: number) => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const position = (percentile / 100) * (sorted.length - 1);
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.ceil(position);
+  if (lowerIndex === upperIndex) {
+    return sorted[lowerIndex];
+  }
+  const weight = position - lowerIndex;
+  return sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex]) * weight;
 };
 
 export default function Home() {
@@ -361,6 +399,34 @@ export default function Home() {
       formatQuarterLabel(plotResponse.labels[index] ?? "").label
     );
   }, [plotResponse, tickValues]);
+
+  const historicalPercentiles = useMemo<PercentileBucket[]>(() => {
+    if (!originalPlotResponse || originalPlotResponse.series.length === 0) return [];
+    const referenceSeries = originalPlotResponse.series[0];
+    const referenceValues = deriveSeriesValues(
+      referenceSeries.values,
+      displayMode,
+      periodsPerYear,
+      quarterZeroIndex
+    );
+    const historySlice = referenceValues.slice(0, Math.max(0, quarterZeroIndex));
+    return [2, 3, 4, 5].map((order) => {
+      const differenceValues = calculateDifferences(historySlice, order);
+      const values = percentileLevels.reduce<Record<number, number | null>>((acc, level) => {
+        acc[level] = calculatePercentile(differenceValues, level);
+        return acc;
+      }, {});
+      return { order, values };
+    });
+  }, [originalPlotResponse, displayMode, periodsPerYear, quarterZeroIndex]);
+
+  const formatPercentileValue = (value: number | null) => {
+    if (!isNumericValue(value)) return "—";
+    const formatter = new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 3
+    });
+    return formatter.format(value);
+  };
   const yearsOnAxis = useMemo(
     () =>
       periodLabels
@@ -1098,6 +1164,36 @@ export default function Home() {
                   onLegendClick={handleLegendClick}
                   onRelayout={handleRangeRelayout}
                 />
+              </div>
+              <div className="percentile-panel">
+                <div className="percentile-title">Historical Δ²Q–Δ⁵Q percentiles</div>
+                <div className="percentile-subtitle">
+                  Calculated from the pre-Quarter 0 history in the current display mode.
+                </div>
+                <table className="percentile-table">
+                  <thead>
+                    <tr>
+                      <th aria-hidden="true" />
+                      {historicalPercentiles.map((bucket) => (
+                        <th key={bucket.order}>
+                          Δ<sup>{bucket.order}</sup>Q
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {percentileLevels.map((level) => (
+                      <tr key={level}>
+                        <th>{level}th</th>
+                        {historicalPercentiles.map((bucket) => (
+                          <td key={`${bucket.order}-${level}`}>
+                            {formatPercentileValue(bucket.values[level] ?? null)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
             {yearsOnAxis.length > 0 && (
