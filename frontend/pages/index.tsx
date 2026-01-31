@@ -52,7 +52,8 @@ const isNumericValue = (value: number | null | undefined): value is number =>
 const deriveSeriesValues = (
   values: (number | null)[],
   mode: DisplayMode,
-  periodsPerYear: number
+  periodsPerYear: number,
+  baselineIndex = 0
 ) => {
   if (mode === "raw") {
     return [...values];
@@ -84,11 +85,11 @@ const deriveSeriesValues = (
       );
     }
     if (mode === "since_start") {
-      const baseline = array[0];
+      const baseline = array[baselineIndex];
       if (!isNumericValue(baseline)) return null;
       return value - baseline;
     }
-    const baseline = array[0];
+    const baseline = array[baselineIndex];
     if (!isNumericValue(baseline) || baseline === 0) return null;
     return ((value - baseline) / baseline) * 100;
   });
@@ -103,8 +104,7 @@ export default function Home() {
   const [originalContextKey, setOriginalContextKey] = useState<string>("");
   const [displayMode, setDisplayMode] = useState<DisplayMode>("raw");
   const [statusMessage, setStatusMessage] = useState<string>("");
-  const [startLabel, setStartLabel] = useState<string>("");
-  const [endLabel, setEndLabel] = useState<string>("");
+  const [quarterZeroLabel, setQuarterZeroLabel] = useState<string>("");
   const [lockedSeries, setLockedSeries] = useState<string[]>([]);
   const originalSeriesByFileRef = useRef<Record<string, Record<string, number | null>>>({});
   const selectedSheet = "Quarterly";
@@ -259,84 +259,45 @@ export default function Home() {
     [periodAdjective, periodNoun]
   );
 
-  const displayRange = useMemo(() => {
-    if (!plotResponse || plotResponse.labels.length === 0) return null;
-    let startIndex = 0;
-    let endIndex = plotResponse.labels.length - 1;
-    if (startLabel) {
-      const foundStart = plotResponse.labels.indexOf(startLabel);
-      if (foundStart !== -1) startIndex = foundStart;
-    }
-    if (endLabel) {
-      const foundEnd = plotResponse.labels.indexOf(endLabel);
-      if (foundEnd !== -1) endIndex = foundEnd;
-    }
-    if (startIndex > endIndex) {
-      const swap = startIndex;
-      startIndex = endIndex;
-      endIndex = swap;
-    }
-    return { startIndex, endIndex };
-  }, [plotResponse, startLabel, endLabel]);
+  const quarterZeroIndex = useMemo(() => {
+    if (!plotResponse || plotResponse.labels.length === 0) return 0;
+    const foundIndex = quarterZeroLabel
+      ? plotResponse.labels.indexOf(quarterZeroLabel)
+      : 0;
+    return foundIndex >= 0 ? foundIndex : 0;
+  }, [plotResponse, quarterZeroLabel]);
 
   const displayResponse = useMemo(() => {
     if (!plotResponse) return null;
-    const range = displayRange ?? { startIndex: 0, endIndex: plotResponse.labels.length - 1 };
-    const slice = (values: (number | null)[]) =>
-      values.slice(range.startIndex, range.endIndex + 1);
-    const needsHistory = [
-      "quarterly_change",
-      "quarterly_change_percent",
-      "year_over_year",
-      "year_over_year_percent"
-    ].includes(displayMode);
     return {
       ...plotResponse,
-      labels: slice(plotResponse.labels),
       series: plotResponse.series.map((entry) => {
-        if (needsHistory) {
-          const derived = deriveSeriesValues(entry.values, displayMode, periodsPerYear);
-          return { ...entry, values: slice(derived) };
-        }
-        const slicedValues = slice(entry.values);
-        return {
-          ...entry,
-          values: deriveSeriesValues(slicedValues, displayMode, periodsPerYear)
-        };
+        const derived = deriveSeriesValues(
+          entry.values,
+          displayMode,
+          periodsPerYear,
+          quarterZeroIndex
+        );
+        return { ...entry, values: derived };
       })
     };
-  }, [plotResponse, displayRange, displayMode]);
+  }, [plotResponse, displayMode, periodsPerYear, quarterZeroIndex]);
 
   const originalDisplayResponse = useMemo(() => {
     if (!originalPlotResponse) return null;
-    const range = displayRange ?? {
-      startIndex: 0,
-      endIndex: originalPlotResponse.labels.length - 1
-    };
-    const slice = (values: (number | null)[]) =>
-      values.slice(range.startIndex, range.endIndex + 1);
-    const needsHistory = [
-      "quarterly_change",
-      "quarterly_change_percent",
-      "year_over_year",
-      "year_over_year_percent"
-    ].includes(displayMode);
     return {
       ...originalPlotResponse,
-      labels: slice(originalPlotResponse.labels),
       series: originalPlotResponse.series.map((entry) => {
-        if (needsHistory) {
-          const derived = deriveSeriesValues(entry.values, displayMode, periodsPerYear);
-          return { ...entry, values: slice(derived) };
-        }
-        const slicedValues = slice(entry.values);
-        return {
-          ...entry,
-          values: deriveSeriesValues(slicedValues, displayMode, periodsPerYear)
-        };
+        const derived = deriveSeriesValues(
+          entry.values,
+          displayMode,
+          periodsPerYear,
+          quarterZeroIndex
+        );
+        return { ...entry, values: derived };
       })
     };
-  }, [originalPlotResponse, displayRange, displayMode]);
+  }, [originalPlotResponse, displayMode, periodsPerYear, quarterZeroIndex]);
 
   const periodLabels = useMemo(
     () => displayResponse?.labels.map((label) => formatQuarterLabel(label)) ?? [],
@@ -366,6 +327,18 @@ export default function Home() {
         .map((entry) => entry.year),
     [periodLabels]
   );
+
+  const visibleQuarterRange = useMemo(() => {
+    if (!plotResponse || plotResponse.labels.length === 0) {
+      return { startIndex: 0, endIndex: 0 };
+    }
+    const startIndex = Math.min(
+      Math.max(quarterZeroIndex, 0),
+      plotResponse.labels.length - 1
+    );
+    const endIndex = Math.min(startIndex + 12, plotResponse.labels.length - 1);
+    return { startIndex, endIndex };
+  }, [plotResponse, quarterZeroIndex]);
 
   const colorByFile = useMemo(() => {
     if (!plotResponse) return {};
@@ -500,14 +473,10 @@ export default function Home() {
 
   useEffect(() => {
     if (availableLabels.length === 0) {
-      setStartLabel("");
-      setEndLabel("");
+      setQuarterZeroLabel("");
       return;
     }
-    setStartLabel((prev) => (availableLabels.includes(prev) ? prev : availableLabels[0]));
-    setEndLabel((prev) =>
-      availableLabels.includes(prev) ? prev : availableLabels[availableLabels.length - 1]
-    );
+    setQuarterZeroLabel((prev) => (availableLabels.includes(prev) ? prev : availableLabels[0]));
   }, [availableLabels]);
 
   const handleFileToggle = (fileId: string) => {
@@ -543,22 +512,14 @@ export default function Home() {
       setStatusMessage("Choose a series name and at least one file.");
       return;
     }
-    let calcStartLabel = startLabel || null;
-    if (startLabel && availableLabels.length) {
-      const startIndex = availableLabels.indexOf(startLabel);
-      if (startIndex > 0) {
-        const lookbackIndex = Math.max(0, startIndex - periodsPerYear);
-        calcStartLabel = availableLabels[lookbackIndex] ?? startLabel;
-      }
-    }
     const response = await fetch(`${API_BASE}/api/plot-series`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         series_name: selectedSeries,
         files: selectedFiles,
-        start_label: calcStartLabel,
-        end_label: endLabel || null,
+        start_label: null,
+        end_label: null,
         sheet_name: selectedSheet
       })
     });
@@ -597,7 +558,7 @@ export default function Home() {
     if (!plotResponse || !selectedSeries || selectedFiles.length === 0) return;
     void fetchPlot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSeries, selectedFiles, startLabel, endLabel]);
+  }, [selectedSeries, selectedFiles]);
 
   useEffect(() => {
     setLockedSeries((prev) => prev.filter((fileId) => selectedFiles.includes(fileId)));
@@ -684,8 +645,7 @@ export default function Home() {
       setStatusMessage("Series is locked. Use the legend to unlock it before editing.");
       return;
     }
-    const rangeStartIndex = displayRange?.startIndex ?? 0;
-    const rawIndex = rangeStartIndex + pointIndex;
+    const rawIndex = pointIndex;
     const currentValue =
       point.y ??
       displayResponse.series.find((entry) => entry.file === fileId)?.values?.[pointIndex] ??
@@ -739,14 +699,14 @@ export default function Home() {
       }
       nextRawValue = prior * (1 + nextValue / 100);
     } else if (displayMode === "since_start") {
-      const baseline = rawSeries.values[rangeStartIndex];
+      const baseline = rawSeries.values[quarterZeroIndex];
       if (!isNumericValue(baseline)) {
         setStatusMessage(`Change vs. first ${periodNoun} needs the first value to be set.`);
         return;
       }
       nextRawValue = baseline + nextValue;
     } else {
-      const baseline = rawSeries.values[rangeStartIndex];
+      const baseline = rawSeries.values[quarterZeroIndex];
       if (!isNumericValue(baseline) || baseline === 0) {
         setStatusMessage(`Percent change vs. first ${periodNoun} needs a non-zero first value.`);
         return;
@@ -829,7 +789,7 @@ export default function Home() {
       </section>
 
       <section className="card">
-        <div className="section-title">2) Plot selection & time range</div>
+        <div className="section-title">2) Plot selection & Quarter 0</div>
         <div className="grid">
           <div>
             <label>Display mode</label>
@@ -869,38 +829,19 @@ export default function Home() {
         </div>
         <div className="grid">
           <div>
-            <label>Start</label>
+            <label>Quarter 0</label>
             <input
               className="search-input"
-              list="start-label-options"
-              value={startLabel}
-              onChange={(event) => setStartLabel(event.target.value)}
+              list="quarter-zero-options"
+              value={quarterZeroLabel}
+              onChange={(event) => setQuarterZeroLabel(event.target.value)}
               onBlur={() => {
-                if (!availableLabels.includes(startLabel) && availableLabels[0]) {
-                  setStartLabel(availableLabels[0]);
+                if (!availableLabels.includes(quarterZeroLabel) && availableLabels[0]) {
+                  setQuarterZeroLabel(availableLabels[0]);
                 }
               }}
             />
-            <datalist id="start-label-options">
-              {availableLabels.map((label) => (
-                <option key={label} value={label} />
-              ))}
-            </datalist>
-          </div>
-          <div>
-            <label>End</label>
-            <input
-              className="search-input"
-              list="end-label-options"
-              value={endLabel}
-              onChange={(event) => setEndLabel(event.target.value)}
-              onBlur={() => {
-                if (!availableLabels.includes(endLabel) && availableLabels.length) {
-                  setEndLabel(availableLabels[availableLabels.length - 1]);
-                }
-              }}
-            />
-            <datalist id="end-label-options">
+            <datalist id="quarter-zero-options">
               {availableLabels.map((label) => (
                 <option key={label} value={label} />
               ))}
@@ -932,13 +873,32 @@ export default function Home() {
                     },
                     hovermode: "closest",
                     dragmode: false,
+                    shapes: [
+                      {
+                        type: "rect",
+                        xref: "x",
+                        yref: "paper",
+                        x0: visibleQuarterRange.startIndex - 0.5,
+                        x1: visibleQuarterRange.endIndex + 0.5,
+                        y0: 0,
+                        y1: 1,
+                        fillcolor: "rgba(148, 163, 184, 0.25)",
+                        line: { width: 0 }
+                      }
+                    ],
                     xaxis: {
                       tickmode: "array",
                       tickvals: tickValues,
                       ticktext: tickText,
                       tickangle: -45,
                       automargin: true,
-                      fixedrange: true
+                      fixedrange: true,
+                      range: [visibleQuarterRange.startIndex, visibleQuarterRange.endIndex],
+                      rangeslider: {
+                        visible: true,
+                        thickness: 0.12,
+                        bgcolor: "#f1f5f9"
+                      }
                     },
                     yaxis: {
                       fixedrange: true
