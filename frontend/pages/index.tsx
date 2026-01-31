@@ -312,6 +312,14 @@ export default function Home() {
     }, {});
   }, [plotResponse]);
 
+  const legendRankByFile = useMemo(() => {
+    if (!plotResponse) return {};
+    return plotResponse.series.reduce<Record<string, number>>((acc, entry, index) => {
+      acc[entry.file] = index + 1;
+      return acc;
+    }, {});
+  }, [plotResponse]);
+
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
     const locked: PlotResponse["series"] = [];
@@ -330,12 +338,14 @@ export default function Home() {
       );
       const isLocked = lockedSeries.includes(seriesEntry.file);
       const seriesColor = colorByFile[seriesEntry.file] ?? "#2563eb";
+      const legendRank = legendRankByFile[seriesEntry.file] ?? 0;
       return {
         x: displayResponse.labels.map((_, index) => index),
         y: alignedValues,
         type: "scatter",
         mode: "lines+markers",
         name: seriesEntry.scenario?.trim() || seriesEntry.file,
+        legendrank: legendRank,
         opacity: isLocked ? 0.4 : 1,
         marker: { size: 8, color: seriesColor },
         line: { color: seriesColor },
@@ -345,7 +355,7 @@ export default function Home() {
         hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       };
     });
-  }, [displayResponse, lockedSeries, colorByFile]);
+  }, [displayResponse, lockedSeries, colorByFile, legendRankByFile]);
 
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
