@@ -149,7 +149,7 @@ button.ghost {
 
 .plot-area {
   display: flex;
-  gap: 16px;
+  gap: 8px;
   align-items: flex-start;
   flex-wrap: wrap;
 }
@@ -160,8 +160,8 @@ button.ghost {
 }
 
 .percentile-panel {
-  flex: 0 0 280px;
-  min-width: 240px;
+  flex: 0 0 360px;
+  min-width: 320px;
   background: #f8fafc;
   border-radius: 16px;
   padding: 18px;
