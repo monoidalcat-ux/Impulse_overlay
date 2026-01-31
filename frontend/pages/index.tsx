@@ -565,6 +565,7 @@ export default function Home() {
       lastQuarterZeroRef.current = "";
       return;
     }
+    const defaultPadding = 3;
     const resolvedQuarterZero =
       quarterZeroLabel && plotResponse.labels.includes(quarterZeroLabel)
         ? quarterZeroLabel
@@ -572,8 +573,12 @@ export default function Home() {
     if (!visibleRange || resolvedQuarterZero !== lastQuarterZeroRef.current) {
       const startIndex = plotResponse.labels.indexOf(resolvedQuarterZero);
       const safeStart = Math.max(0, startIndex);
-      const endIndex = Math.min(plotResponse.labels.length - 1, safeStart + 12);
-      setVisibleRange({ startIndex: safeStart, endIndex });
+      const paddedStart = Math.max(0, safeStart - defaultPadding);
+      const endIndex = Math.min(
+        plotResponse.labels.length - 1,
+        safeStart + 12 + defaultPadding
+      );
+      setVisibleRange({ startIndex: paddedStart, endIndex });
       lastQuarterZeroRef.current = resolvedQuarterZero;
     }
   }, [plotResponse, quarterZeroLabel, visibleRange]);
