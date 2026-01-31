@@ -387,6 +387,29 @@ export default function Home() {
     return plotResponse.labels.slice(displayRange.startIndex, displayRange.endIndex + 1);
   }, [plotResponse, displayRange]);
 
+  const yAxisRange = useMemo(() => {
+    if (!plotResponse || !displayRange) return undefined;
+    const values: number[] = [];
+    plotResponse.series.forEach((entry) => {
+      const seriesValues = displayValuesByFile[entry.file] ?? entry.values;
+      for (let index = displayRange.startIndex; index <= displayRange.endIndex; index += 1) {
+        const value = seriesValues[index];
+        if (isNumericValue(value)) {
+          values.push(value);
+        }
+      }
+    });
+    if (values.length === 0) return undefined;
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    if (minValue === maxValue) {
+      const padding = Math.abs(minValue || 1) * 0.05;
+      return [minValue - padding, maxValue + padding];
+    }
+    const padding = (maxValue - minValue) * 0.05;
+    return [minValue - padding, maxValue + padding];
+  }, [plotResponse, displayRange, displayValuesByFile]);
+
   const periodLabels = useMemo(
     () => displayLabels.map((label) => formatQuarterLabel(label)),
     [displayLabels]
@@ -575,24 +598,25 @@ export default function Home() {
         line: { color: options.color, dash: options.dash },
         connectgaps: false,
         customdata: plotResponse.labels,
-        meta: { fileId, isOriginal: options.isOriginal ?? false },
-        hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
+        meta: { fileId, isOriginal: options.isOriginal ?? false, legendName: name },
+        hovertemplate: "%{customdata}<br>Value: %{y}<br>Legend: %{meta.legendName}<extra></extra>"
       });
       const makeMarkerTrace = (
         values: (number | null)[],
-        options: { color: string; opacity?: number; isOriginal?: boolean }
+        options: { color: string; opacity?: number; isOriginal?: boolean; name: string }
       ) => ({
         x: xValues,
         y: plotResponse.labels.map((_, index) => values[index] ?? null),
         type: "scatter",
         mode: "markers",
+        name: options.name,
         showlegend: false,
         opacity: isLocked ? 0.4 : options.opacity ?? 1,
         marker: { size: 8, color: options.color },
         connectgaps: false,
         customdata: plotResponse.labels,
-        meta: { fileId, isOriginal: options.isOriginal ?? false },
-        hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>",
+        meta: { fileId, isOriginal: options.isOriginal ?? false, legendName: options.name },
+        hovertemplate: "%{customdata}<br>Value: %{y}<br>Legend: %{meta.legendName}<extra></extra>",
         xaxis: "x2"
       });
       if (hasChanges && originalEntry) {
@@ -608,14 +632,16 @@ export default function Home() {
           makeMarkerTrace(originalValues, {
             color: fadedColor,
             opacity: 0.9,
-            isOriginal: true
+            isOriginal: true,
+            name: `${nameBase} (original)`
           }),
           makeLineTrace(modifiedValues, `${nameBase} (modified)`, {
             color: seriesColor,
             dash: "solid"
           }),
           makeMarkerTrace(modifiedValues, {
-            color: seriesColor
+            color: seriesColor,
+            name: `${nameBase} (modified)`
           })
         ];
       }
@@ -626,7 +652,8 @@ export default function Home() {
           dash: "solid"
         }),
         makeMarkerTrace(values, {
-          color: seriesColor
+          color: seriesColor,
+          name: nameBase
         })
       ];
     });
@@ -661,6 +688,9 @@ export default function Home() {
   }, [plotResponse, quarterZeroIndex]);
 
   const availableLabels = useMemo(() => {
+    if (plotResponse?.labels?.length) {
+      return plotResponse.labels;
+    }
     if (selectedFiles.length === 0) return [];
     const merged = new Set<string>();
     selectedFiles.forEach((fileId) => {
@@ -669,7 +699,7 @@ export default function Home() {
       labels.forEach((label) => merged.add(label));
     });
     return Array.from(merged).sort(compareLabels);
-  }, [inputFiles, selectedFiles]);
+  }, [inputFiles, selectedFiles, plotResponse]);
 
   useEffect(() => {
     if (availableLabels.length === 0) {
@@ -1196,7 +1226,8 @@ export default function Home() {
                       zeroline: false
                     },
                     yaxis: {
-                      fixedrange: true
+                      fixedrange: true,
+                      range: yAxisRange
                     }
                   }}
                   config={{
