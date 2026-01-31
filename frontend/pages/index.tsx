@@ -598,24 +598,25 @@ export default function Home() {
         line: { color: options.color, dash: options.dash },
         connectgaps: false,
         customdata: plotResponse.labels,
-        meta: { fileId, isOriginal: options.isOriginal ?? false },
-        hovertemplate: "%{customdata}<br>Value: %{y}<br>Legend: %{fullData.name}<extra></extra>"
+        meta: { fileId, isOriginal: options.isOriginal ?? false, legendName: name },
+        hovertemplate: "%{customdata}<br>Value: %{y}<br>Legend: %{meta.legendName}<extra></extra>"
       });
       const makeMarkerTrace = (
         values: (number | null)[],
-        options: { color: string; opacity?: number; isOriginal?: boolean }
+        options: { color: string; opacity?: number; isOriginal?: boolean; name: string }
       ) => ({
         x: xValues,
         y: plotResponse.labels.map((_, index) => values[index] ?? null),
         type: "scatter",
         mode: "markers",
+        name: options.name,
         showlegend: false,
         opacity: isLocked ? 0.4 : options.opacity ?? 1,
         marker: { size: 8, color: options.color },
         connectgaps: false,
         customdata: plotResponse.labels,
-        meta: { fileId, isOriginal: options.isOriginal ?? false },
-        hovertemplate: "%{customdata}<br>Value: %{y}<br>Legend: %{fullData.name}<extra></extra>",
+        meta: { fileId, isOriginal: options.isOriginal ?? false, legendName: options.name },
+        hovertemplate: "%{customdata}<br>Value: %{y}<br>Legend: %{meta.legendName}<extra></extra>",
         xaxis: "x2"
       });
       if (hasChanges && originalEntry) {
@@ -631,14 +632,16 @@ export default function Home() {
           makeMarkerTrace(originalValues, {
             color: fadedColor,
             opacity: 0.9,
-            isOriginal: true
+            isOriginal: true,
+            name: `${nameBase} (original)`
           }),
           makeLineTrace(modifiedValues, `${nameBase} (modified)`, {
             color: seriesColor,
             dash: "solid"
           }),
           makeMarkerTrace(modifiedValues, {
-            color: seriesColor
+            color: seriesColor,
+            name: `${nameBase} (modified)`
           })
         ];
       }
@@ -649,7 +652,8 @@ export default function Home() {
           dash: "solid"
         }),
         makeMarkerTrace(values, {
-          color: seriesColor
+          color: seriesColor,
+          name: nameBase
         })
       ];
     });
