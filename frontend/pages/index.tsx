@@ -140,6 +140,20 @@ const calculatePercentile = (values: number[], percentile: number) => {
   return sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex]) * weight;
 };
 
+const calculatePercentileRank = (values: number[], target: number) => {
+  if (values.length === 0) return null;
+  let belowCount = 0;
+  let equalCount = 0;
+  values.forEach((value) => {
+    if (value < target) {
+      belowCount += 1;
+    } else if (value === target) {
+      equalCount += 1;
+    }
+  });
+  return ((belowCount + equalCount * 0.5) / values.length) * 100;
+};
+
 export default function Home() {
   const [inputFiles, setInputFiles] = useState<InputFile[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<string>("");
@@ -151,6 +165,7 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [nameListMessage, setNameListMessage] = useState<string>("");
   const [quarterZeroLabel, setQuarterZeroLabel] = useState<string>("");
+  const [percentileInput, setPercentileInput] = useState<string>("");
   const [visibleRange, setVisibleRange] = useState<{ startIndex: number; endIndex: number } | null>(
     null
   );
@@ -420,12 +435,51 @@ export default function Home() {
     });
   }, [originalPlotResponse, displayMode, periodsPerYear, quarterZeroIndex]);
 
+  const historicalDifferenceValues = useMemo(() => {
+    if (!originalPlotResponse || originalPlotResponse.series.length === 0) return {};
+    const referenceSeries = originalPlotResponse.series[0];
+    const referenceValues = deriveSeriesValues(
+      referenceSeries.values,
+      displayMode,
+      periodsPerYear,
+      quarterZeroIndex
+    );
+    const historySlice = referenceValues.slice(0, Math.max(0, quarterZeroIndex));
+    return [2, 3, 4, 5].reduce<Record<number, number[]>>((acc, order) => {
+      acc[order] = calculateDifferences(historySlice, order);
+      return acc;
+    }, {});
+  }, [originalPlotResponse, displayMode, periodsPerYear, quarterZeroIndex]);
+
+  const percentileInputValue = useMemo(() => {
+    if (!percentileInput.trim()) return null;
+    const parsed = Number(percentileInput);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [percentileInput]);
+
+  const historicalPercentileRanks = useMemo(() => {
+    if (percentileInputValue === null) return {};
+    return [2, 3, 4, 5].reduce<Record<number, number | null>>((acc, order) => {
+      const values = historicalDifferenceValues[order] ?? [];
+      acc[order] = calculatePercentileRank(values, percentileInputValue);
+      return acc;
+    }, {});
+  }, [historicalDifferenceValues, percentileInputValue]);
+
   const formatPercentileValue = (value: number | null) => {
     if (!isNumericValue(value)) return "—";
     const formatter = new Intl.NumberFormat("en-US", {
       maximumFractionDigits: 3
     });
     return formatter.format(value);
+  };
+
+  const formatPercentileRank = (value: number | null) => {
+    if (!isNumericValue(value)) return "—";
+    const formatter = new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 1
+    });
+    return `${formatter.format(value)}%`;
   };
   const yearsOnAxis = useMemo(
     () =>
@@ -1195,6 +1249,29 @@ export default function Home() {
                   </tbody>
                 </table>
               </div>
+            </div>
+            <div className="percentile-calculator">
+              <div className="percentile-calculator-input">
+                <label htmlFor="percentile-input">Percentile rank input</label>
+                <input
+                  id="percentile-input"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Enter a value"
+                  value={percentileInput}
+                  onChange={(event) => setPercentileInput(event.target.value)}
+                />
+              </div>
+              {[2, 3, 4, 5].map((order) => (
+                <div key={order} className="percentile-calculator-output">
+                  <span>
+                    Δ<sup>{order}</sup>Q
+                  </span>
+                  <strong>
+                    {formatPercentileRank(historicalPercentileRanks[order] ?? null)}
+                  </strong>
+                </div>
+              ))}
             </div>
             {yearsOnAxis.length > 0 && (
               <p className="notice">

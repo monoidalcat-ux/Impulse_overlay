@@ -208,6 +208,65 @@ button.ghost {
   min-width: 56px;
 }
 
+.percentile-calculator {
+  margin-top: 16px;
+  background: #ffffff;
+  border: 3px solid #0f172a;
+  border-radius: 28px;
+  padding: 18px 24px;
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  flex-wrap: wrap;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.percentile-calculator-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 140px;
+}
+
+.percentile-calculator-input label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.percentile-calculator-input input {
+  border: 2px solid #0f172a;
+  border-radius: 14px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.percentile-calculator-output {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 92px;
+}
+
+.percentile-calculator-output span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.percentile-calculator-output strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 6px 10px;
+  border: 2px solid #0f172a;
+  border-radius: 14px;
+  background: #f8fafc;
+  font-size: 14px;
+}
+
 .rangeslider .rangeslider-mask {
   fill: rgba(255, 255, 255, 0.5) !important;
 }
