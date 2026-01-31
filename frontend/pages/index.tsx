@@ -1161,11 +1161,11 @@ export default function Home() {
                   layout={{
                     title: `Series: ${selectedSeries} (${modeOptions.find((option) => option.value === displayMode)?.label ?? "Mode"})`,
                     height: 640,
-                    margin: { t: 50, r: 30, l: 50, b: 200 },
+                    margin: { t: 50, r: 30, l: 50, b: 140 },
                     legend: {
                       orientation: "h",
                       x: 0,
-                      y: -0.5,
+                      y: -0.35,
                       xanchor: "left",
                       yanchor: "top"
                     },
