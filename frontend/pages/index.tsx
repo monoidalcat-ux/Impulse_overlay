@@ -387,6 +387,29 @@ export default function Home() {
     return plotResponse.labels.slice(displayRange.startIndex, displayRange.endIndex + 1);
   }, [plotResponse, displayRange]);
 
+  const yAxisRange = useMemo(() => {
+    if (!plotResponse || !displayRange) return undefined;
+    const values: number[] = [];
+    plotResponse.series.forEach((entry) => {
+      const seriesValues = displayValuesByFile[entry.file] ?? entry.values;
+      for (let index = displayRange.startIndex; index <= displayRange.endIndex; index += 1) {
+        const value = seriesValues[index];
+        if (isNumericValue(value)) {
+          values.push(value);
+        }
+      }
+    });
+    if (values.length === 0) return undefined;
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    if (minValue === maxValue) {
+      const padding = Math.abs(minValue || 1) * 0.05;
+      return [minValue - padding, maxValue + padding];
+    }
+    const padding = (maxValue - minValue) * 0.05;
+    return [minValue - padding, maxValue + padding];
+  }, [plotResponse, displayRange, displayValuesByFile]);
+
   const periodLabels = useMemo(
     () => displayLabels.map((label) => formatQuarterLabel(label)),
     [displayLabels]
@@ -1199,7 +1222,8 @@ export default function Home() {
                       zeroline: false
                     },
                     yaxis: {
-                      fixedrange: true
+                      fixedrange: true,
+                      range: yAxisRange
                     }
                   }}
                   config={{
