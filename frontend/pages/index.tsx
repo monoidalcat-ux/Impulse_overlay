@@ -24,6 +24,7 @@ type PlotResponse = {
   series: {
     file: string;
     values: (number | null)[];
+    scenario?: string | null;
   }[];
   metadata: Record<string, string>;
 };
@@ -102,6 +103,7 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [startLabel, setStartLabel] = useState<string>("");
   const [endLabel, setEndLabel] = useState<string>("");
+  const [lockedSeries, setLockedSeries] = useState<string[]>([]);
   const selectedSheet = "Quarterly";
 
   const formatQuarterLabel = (label: string): QuarterLabel => {
@@ -290,30 +292,70 @@ export default function Home() {
     [periodLabels]
   );
 
+  const colorByFile = useMemo(() => {
+    if (!plotResponse) return {};
+    const palette = [
+      "#2563eb",
+      "#f97316",
+      "#16a34a",
+      "#e11d48",
+      "#7c3aed",
+      "#0d9488",
+      "#f59e0b",
+      "#3b82f6",
+      "#ec4899",
+      "#84cc16"
+    ];
+    return plotResponse.series.reduce<Record<string, string>>((acc, entry, index) => {
+      acc[entry.file] = palette[index % palette.length];
+      return acc;
+    }, {});
+  }, [plotResponse]);
+
+  const legendRankByFile = useMemo(() => {
+    if (!plotResponse) return {};
+    return plotResponse.series.reduce<Record<string, number>>((acc, entry, index) => {
+      acc[entry.file] = index + 1;
+      return acc;
+    }, {});
+  }, [plotResponse]);
+
   const plotData = useMemo(() => {
     if (!displayResponse) return [];
-    return displayResponse.series.map((seriesEntry) => {
+    const locked: PlotResponse["series"] = [];
+    const unlocked: PlotResponse["series"] = [];
+    displayResponse.series.forEach((entry) => {
+      if (lockedSeries.includes(entry.file)) {
+        locked.push(entry);
+      } else {
+        unlocked.push(entry);
+      }
+    });
+    const orderedSeries = [...locked, ...unlocked];
+    return orderedSeries.map((seriesEntry) => {
       const alignedValues = displayResponse.labels.map(
         (_, index) => seriesEntry.values[index] ?? null
       );
+      const isLocked = lockedSeries.includes(seriesEntry.file);
+      const seriesColor = colorByFile[seriesEntry.file] ?? "#2563eb";
+      const legendRank = legendRankByFile[seriesEntry.file] ?? 0;
       return {
         x: displayResponse.labels.map((_, index) => index),
         y: alignedValues,
         type: "scatter",
         mode: "lines+markers",
-        name: seriesEntry.file,
-        marker: { size: 8 },
+        name: seriesEntry.scenario?.trim() || seriesEntry.file,
+        legendrank: legendRank,
+        opacity: isLocked ? 0.4 : 1,
+        marker: { size: 8, color: seriesColor },
+        line: { color: seriesColor },
         connectgaps: false,
         customdata: displayResponse.labels,
+        meta: { fileId: seriesEntry.file },
         hovertemplate: "%{customdata}<br>Value: %{y}<extra></extra>"
       };
     });
-  }, [displayResponse]);
-
-  const metadataEntries = useMemo(() => {
-    if (!plotResponse) return [];
-    return Object.entries(plotResponse.metadata ?? {}).filter(([, value]) => value.trim() !== "");
-  }, [plotResponse]);
+  }, [displayResponse, lockedSeries, colorByFile, legendRankByFile]);
 
   const availableLabels = useMemo(() => {
     if (selectedFiles.length === 0) return [];
@@ -405,6 +447,22 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSeries, selectedFiles, startLabel, endLabel]);
 
+  useEffect(() => {
+    setLockedSeries((prev) => prev.filter((fileId) => selectedFiles.includes(fileId)));
+  }, [selectedFiles]);
+
+  const handleLegendClick = (event: {
+    curveNumber: number;
+    data?: Array<{ meta?: { fileId?: string } }>;
+  }) => {
+    const fileId = event.data?.[event.curveNumber]?.meta?.fileId;
+    if (!fileId) return false;
+    setLockedSeries((prev) =>
+      prev.includes(fileId) ? prev.filter((entry) => entry !== fileId) : [...prev, fileId]
+    );
+    return false;
+  };
+
   const updateValue = async (fileId: string, label: string, value: number) => {
     const response = await fetch(`${API_BASE}/api/input-files/edit`, {
       method: "POST",
@@ -455,10 +513,19 @@ export default function Home() {
     const point = event.points[0];
     const traceIndex = point.curveNumber;
     const pointIndex = point.pointNumber;
+    const seriesEntry = plotData[traceIndex] as { meta?: { fileId?: string } } | undefined;
+    const fileId = seriesEntry?.meta?.fileId;
+    if (!fileId) return;
+    if (lockedSeries.includes(fileId)) {
+      setStatusMessage("Series is locked. Use the legend to unlock it before editing.");
+      return;
+    }
     const rangeStartIndex = displayRange?.startIndex ?? 0;
     const rawIndex = rangeStartIndex + pointIndex;
     const currentValue =
-      point.y ?? displayResponse.series[traceIndex]?.values?.[pointIndex] ?? "";
+      point.y ??
+      displayResponse.series.find((entry) => entry.file === fileId)?.values?.[pointIndex] ??
+      "";
     const activeMode = modeOptions.find((option) => option.value === displayMode);
     const input = window.prompt(
       `Enter a new value for this datapoint (${activeMode?.label ?? "mode"}):`,
@@ -470,7 +537,7 @@ export default function Home() {
       setStatusMessage("Please enter a valid numeric value.");
       return;
     }
-    const rawSeries = plotResponse.series[traceIndex];
+    const rawSeries = plotResponse.series.find((entry) => entry.file === fileId);
     if (!rawSeries) return;
     let nextRawValue: number | null = null;
     if (displayMode === "raw") {
@@ -528,17 +595,18 @@ export default function Home() {
     }
     setPlotResponse((prev) => {
       if (!prev) return prev;
-      const updated = {
-        labels: prev.labels,
-        series: prev.series.map((entry) => ({ ...entry }))
-      };
-      const target = updated.series[traceIndex];
+      const updatedSeries = prev.series.map((entry) => ({ ...entry }));
+      const target = updatedSeries.find((entry) => entry.file === fileId);
       if (!target) return prev;
       target.values[rawIndex] = nextRawValue;
-      return updated;
+      return {
+        labels: prev.labels,
+        series: updatedSeries,
+        metadata: prev.metadata
+      };
     });
     void updateValue(
-      plotResponse.series[traceIndex].file,
+      fileId,
       plotResponse.labels[rawIndex],
       nextRawValue
     );
@@ -727,23 +795,9 @@ export default function Home() {
                     ]
                   }}
                   onClick={handlePointClick}
+                  onLegendClick={handleLegendClick}
                 />
               </div>
-              <aside className="metadata-card">
-                <h4>Series metadata</h4>
-                {metadataEntries.length === 0 ? (
-                  <p className="notice">No metadata found for this series.</p>
-                ) : (
-                  <ul className="metadata-list">
-                    {metadataEntries.map(([key, value]) => (
-                      <li key={key}>
-                        <span>{key}</span>
-                        <strong>{value}</strong>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </aside>
             </div>
             {yearsOnAxis.length > 0 && (
               <p className="notice">

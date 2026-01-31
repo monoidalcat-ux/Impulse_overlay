@@ -244,6 +244,22 @@ def _get_series_metadata(
     return {}
 
 
+def _get_series_scenario(file_id: str, series_name: str, sheet_name: str) -> Optional[str]:
+    metadata_df = INPUT_FILE_METADATA.get(file_id, {}).get(sheet_name)
+    if metadata_df is None or metadata_df.empty or "Scenario" not in metadata_df.columns:
+        return None
+    if series_name not in metadata_df.index:
+        return None
+    row = metadata_df.loc[series_name]
+    if isinstance(row, pd.DataFrame):
+        row = row.iloc[0]
+    value = row.get("Scenario")
+    if pd.isna(value):
+        return None
+    scenario = str(value).strip()
+    return scenario or None
+
+
 def _slice_columns(
     columns: List[str], start_label: Optional[str], end_label: Optional[str]
 ) -> List[str]:
@@ -356,7 +372,8 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
                 detail=f"Sheet {sheet_name} not found for {file_id}",
             )
         values = _get_series_values(df, request.series_name, columns)
-        series_payload.append({"file": file_id, "values": values})
+        scenario = _get_series_scenario(file_id, request.series_name, sheet_name)
+        series_payload.append({"file": file_id, "values": values, "scenario": scenario})
     metadata = _get_series_metadata(request.series_name, request.files, sheet_name)
 
     return {"labels": columns, "series": series_payload, "metadata": metadata}
