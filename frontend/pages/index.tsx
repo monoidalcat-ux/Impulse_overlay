@@ -1273,6 +1273,10 @@ export default function Home() {
                 </div>
               ))}
             </div>
+            <p className="notice">
+              Note: the percentile table and calculator can diverge when the historical window is
+              short, since rounding and interpolation differences become more noticeable.
+            </p>
             {yearsOnAxis.length > 0 && (
               <p className="notice">
                 {periodAdjective} spacing applied. Years shown: {yearsOnAxis.join(", ")}.

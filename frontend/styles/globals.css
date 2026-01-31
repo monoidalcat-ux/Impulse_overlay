@@ -219,6 +219,8 @@ button.ghost {
   gap: 22px;
   flex-wrap: wrap;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  max-width: 620px;
+  width: fit-content;
 }
 
 .percentile-calculator-input {
