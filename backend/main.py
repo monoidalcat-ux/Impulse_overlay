@@ -40,6 +40,7 @@ INPUT_FILE_SERIES: Dict[str, Dict[str, List[str]]] = {}
 INPUT_FILE_FORMAT: Dict[str, str] = {}
 INPUT_FILE_METADATA: Dict[str, Dict[str, pd.DataFrame]] = {}
 INPUT_FILE_SHEETS: Dict[str, List[str]] = {}
+NAME_LIST: Optional[List[str]] = None
 
 TEST_DATA_DIR = Path(__file__).resolve().parents[1] / "test"
 
@@ -83,8 +84,13 @@ class PlotRequest(BaseModel):
     sheet_name: Optional[str] = None
 
 
-class InputFileUploadResponse(BaseModel):
-    file: InputFileMetadata
+class InputFilesUploadResponse(BaseModel):
+    files: List[InputFileMetadata]
+
+
+class NameListResponse(BaseModel):
+    active: bool
+    names: List[str]
 
 
 class InputFileEditRequest(BaseModel):
@@ -152,6 +158,8 @@ def _load_input_files() -> None:
     INPUT_FILE_FORMAT.clear()
     INPUT_FILE_METADATA.clear()
     INPUT_FILE_SHEETS.clear()
+    global NAME_LIST
+    NAME_LIST = None
     if not TEST_DATA_DIR.exists():
         return
     for path in sorted(list(TEST_DATA_DIR.glob("*.csv")) + list(TEST_DATA_DIR.glob("*.xlsx"))):
@@ -379,8 +387,7 @@ def plot_series(request: PlotRequest) -> Dict[str, Any]:
     return {"labels": columns, "series": series_payload, "metadata": metadata}
 
 
-@app.post("/api/input-files/upload", response_model=InputFileUploadResponse)
-async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResponse:
+async def _store_uploaded_file(file: UploadFile) -> InputFileMetadata:
     content = await file.read()
     filename = file.filename or "uploaded.csv"
     file_format = "xlsx" if filename.endswith(".xlsx") else "csv"
@@ -390,7 +397,10 @@ async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResp
         else:
             df = pd.read_csv(io.BytesIO(content))
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Failed to parse file: {exc}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse {filename}: {exc}",
+        ) from exc
 
     file_id = filename
     if file_id in INPUT_FILES:
@@ -410,14 +420,64 @@ async def upload_input_file(file: UploadFile = File(...)) -> InputFileUploadResp
             {DEFAULT_SHEET: (parsed, time_columns, metadata_df)},
             file_format,
         )
-    metadata = InputFileMetadata(
+    return InputFileMetadata(
         id=file_id,
         name=file_id,
         sheets=INPUT_FILE_SHEETS[file_id],
         series_by_sheet=INPUT_FILE_SERIES[file_id],
         columns_by_sheet=INPUT_FILE_COLUMNS[file_id],
     )
-    return InputFileUploadResponse(file=metadata)
+
+
+def _parse_name_list(data: bytes, filename: str) -> List[str]:
+    if not filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Name list must be an Excel .xlsx file")
+    try:
+        sheets = pd.read_excel(io.BytesIO(data), sheet_name=None)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to parse {filename}: {exc}") from exc
+    if len(sheets) != 1:
+        raise HTTPException(status_code=400, detail="Name list must contain exactly one sheet")
+    df = next(iter(sheets.values()))
+    df.columns = [str(col).strip() for col in df.columns]
+    if "Mnemonic" not in df.columns:
+        raise HTTPException(status_code=400, detail="Name list must include a Mnemonic column")
+    names = (
+        df["Mnemonic"]
+        .dropna()
+        .astype(str)
+        .map(str.strip)
+    )
+    unique_names = sorted({name for name in names if name})
+    return unique_names
+
+
+@app.post("/api/input-files/upload", response_model=InputFilesUploadResponse)
+async def upload_input_file(
+    files: List[UploadFile] = File(...),
+) -> InputFilesUploadResponse:
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    uploaded_files = []
+    for file in files:
+        uploaded_files.append(await _store_uploaded_file(file))
+    return InputFilesUploadResponse(files=uploaded_files)
+
+
+@app.get("/api/name-list", response_model=NameListResponse)
+def get_name_list() -> NameListResponse:
+    if not NAME_LIST:
+        return NameListResponse(active=False, names=[])
+    return NameListResponse(active=True, names=NAME_LIST)
+
+
+@app.post("/api/name-list/upload", response_model=NameListResponse)
+async def upload_name_list(file: UploadFile = File(...)) -> NameListResponse:
+    content = await file.read()
+    names = _parse_name_list(content, file.filename or "name-list.xlsx")
+    global NAME_LIST
+    NAME_LIST = names
+    return NameListResponse(active=True, names=names)
 
 
 @app.post("/api/input-files/edit")

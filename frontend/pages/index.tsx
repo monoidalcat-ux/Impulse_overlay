@@ -19,6 +19,11 @@ type InputFilesResponse = {
   series_names: string[];
 };
 
+type NameListResponse = {
+  active: boolean;
+  names: string[];
+};
+
 type PlotResponse = {
   labels: string[];
   series: {
@@ -106,11 +111,13 @@ export default function Home() {
   const [originalContextKey, setOriginalContextKey] = useState<string>("");
   const [displayMode, setDisplayMode] = useState<DisplayMode>("raw");
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [nameListMessage, setNameListMessage] = useState<string>("");
   const [quarterZeroLabel, setQuarterZeroLabel] = useState<string>("");
   const [visibleRange, setVisibleRange] = useState<{ startIndex: number; endIndex: number } | null>(
     null
   );
   const [lockedSeries, setLockedSeries] = useState<string[]>([]);
+  const [nameList, setNameList] = useState<string[] | null>(null);
   const originalSeriesByFileRef = useRef<Record<string, Record<string, number | null>>>({});
   const lastQuarterZeroRef = useRef<string>("");
   const selectedSheet = "Quarterly";
@@ -201,8 +208,15 @@ export default function Home() {
     );
   };
 
+  const loadNameList = async () => {
+    const response = await fetch(`${API_BASE}/api/name-list`);
+    const payload = (await response.json()) as NameListResponse;
+    setNameList(payload.active ? payload.names : null);
+  };
+
   useEffect(() => {
     loadFiles();
+    loadNameList();
   }, []);
 
   const availableSeries = useMemo(() => {
@@ -213,8 +227,12 @@ export default function Home() {
       const seriesList = file?.series_by_sheet?.[selectedSheet] ?? [];
       seriesList.forEach((name) => names.add(name));
     });
-    return Array.from(names).sort();
-  }, [inputFiles, selectedFiles]);
+    if (!nameList) {
+      return Array.from(names).sort();
+    }
+    const allowed = new Set(nameList);
+    return Array.from(names).filter((name) => allowed.has(name)).sort();
+  }, [inputFiles, selectedFiles, nameList]);
 
   useEffect(() => {
     if (availableSeries.length === 0) {
@@ -571,21 +589,46 @@ export default function Home() {
   };
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (selectedFiles.length === 0) return;
     const formData = new FormData();
-    formData.append("file", file);
+    selectedFiles.forEach((file) => {
+      formData.append("files", file);
+    });
     const response = await fetch(`${API_BASE}/api/input-files/upload`, {
       method: "POST",
       body: formData
     });
     if (!response.ok) {
       const error = await response.json();
-      setStatusMessage(error.detail ?? "Unable to upload file.");
+      setStatusMessage(error.detail ?? "Unable to upload files.");
       return;
     }
     await loadFiles();
-    setStatusMessage(`Uploaded ${file.name}.`);
+    setStatusMessage(`Uploaded ${selectedFiles.map((file) => file.name).join(", ")}.`);
+    event.target.value = "";
+  };
+
+  const handleNameListUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`${API_BASE}/api/name-list/upload`, {
+      method: "POST",
+      body: formData
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      setNameListMessage(error.detail ?? "Unable to upload name list.");
+      return;
+    }
+    const payload = (await response.json()) as NameListResponse;
+    setNameList(payload.active ? payload.names : null);
+    setNameListMessage(
+      payload.active ? `Loaded ${payload.names.length} names.` : "Name list cleared."
+    );
+    event.target.value = "";
   };
 
   const fetchPlot = async () => {
@@ -857,7 +900,7 @@ export default function Home() {
 
       <section className="card">
         <div className="section-title">1) Upload & available files</div>
-        <input type="file" accept=".csv,.xlsx" onChange={handleUpload} />
+        <input type="file" accept=".csv,.xlsx" multiple onChange={handleUpload} />
         {statusMessage && <p className="notice">Upload status: {statusMessage}</p>}
         {inputFiles.length === 0 && (
           <p className="notice">No input files found. Add CSVs to the test folder.</p>
@@ -900,6 +943,16 @@ export default function Home() {
         <p className="notice">
           Choose files to plot simultaneously. Each row in the CSV/Excel sheet is treated as a
           time-series entry with the Mnemonic column as the name.
+        </p>
+      </section>
+
+      <section className="card">
+        <div className="section-title">Name list filter (optional)</div>
+        <input type="file" accept=".xlsx" onChange={handleNameListUpload} />
+        {nameListMessage && <p className="notice">Name list status: {nameListMessage}</p>}
+        <p className="notice">
+          Upload an Excel file with a single sheet and a Mnemonic column to limit the Mnemonic
+          suggestions. {nameList ? `Currently filtering to ${nameList.length} names.` : "No name list loaded."}
         </p>
       </section>
 
