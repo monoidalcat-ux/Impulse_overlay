@@ -118,6 +118,21 @@ button.ghost {
   align-items: center;
 }
 
+.download-input {
+  min-width: 160px;
+  border: 1px solid #c7c7d5;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.name-list-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .ghost-button {
   width: auto;
   background: transparent;

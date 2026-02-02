@@ -495,6 +495,13 @@ async def upload_name_list(file: UploadFile = File(...)) -> NameListResponse:
     return NameListResponse(active=True, names=names)
 
 
+@app.delete("/api/name-list", response_model=NameListResponse)
+def delete_name_list() -> NameListResponse:
+    global NAME_LIST
+    NAME_LIST = None
+    return NameListResponse(active=False, names=[])
+
+
 @app.post("/api/input-files/edit")
 def edit_input_file(request: InputFileEditRequest) -> Dict[str, Any]:
     sheet_name = request.sheet_name or DEFAULT_SHEET
