@@ -171,6 +171,7 @@ export default function Home() {
   );
   const [lockedSeries, setLockedSeries] = useState<string[]>([]);
   const [nameList, setNameList] = useState<string[] | null>(null);
+  const [downloadNames, setDownloadNames] = useState<Record<string, string>>({});
   const originalSeriesByFileRef = useRef<Record<string, Record<string, number | null>>>({});
   const lastQuarterZeroRef = useRef<string>("");
   const selectedSheet = "Quarterly";
@@ -265,6 +266,79 @@ export default function Home() {
     const response = await fetch(`${API_BASE}/api/name-list`);
     const payload = (await response.json()) as NameListResponse;
     setNameList(payload.active ? payload.names : null);
+  };
+
+  const getExtension = (filename: string) => {
+    const match = filename.trim().match(/(\.[^./\\]+)$/);
+    return match ? match[1] : "";
+  };
+
+  const ensureDownloadName = (fileId: string, desiredName: string) => {
+    const extension = getExtension(fileId);
+    const trimmed = desiredName.trim();
+    if (!trimmed) {
+      return fileId;
+    }
+    if (extension && !trimmed.endsWith(extension)) {
+      return `${trimmed}${extension}`;
+    }
+    return trimmed;
+  };
+
+  const downloadInputFile = async (fileId: string) => {
+    const desiredName = ensureDownloadName(fileId, downloadNames[fileId] ?? fileId);
+    const response = await fetch(`${API_BASE}/api/input-files/${fileId}/download`);
+    if (!response.ok) {
+      const error = await response.json();
+      setStatusMessage(error.detail ?? "Unable to download file.");
+      return;
+    }
+    const blob = await response.blob();
+    const fileExtension = getExtension(desiredName);
+    if ("showSaveFilePicker" in window) {
+      try {
+        const handle = await (window as Window & {
+          showSaveFilePicker: (options?: {
+            suggestedName?: string;
+            types?: Array<{ description: string; accept: Record<string, string[]> }>;
+          }) => Promise<{
+            createWritable: () => Promise<{
+              write: (data: Blob) => Promise<void>;
+              close: () => Promise<void>;
+            }>;
+          }>;
+        }).showSaveFilePicker({
+          suggestedName: desiredName,
+          types: [
+            {
+              description: fileExtension === ".xlsx" ? "Excel" : "CSV",
+              accept:
+                fileExtension === ".xlsx"
+                  ? { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] }
+                  : { "text/csv": [".csv"] }
+            }
+          ]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        setStatusMessage(`Saved ${desiredName}.`);
+      } catch (error) {
+        if ((error as DOMException).name !== "AbortError") {
+          setStatusMessage("Unable to save file.");
+        }
+      }
+      return;
+    }
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = desiredName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    setStatusMessage(`Downloaded ${desiredName}.`);
   };
 
   useEffect(() => {
@@ -808,6 +882,19 @@ export default function Home() {
     event.target.value = "";
   };
 
+  const handleNameListDelete = async () => {
+    const response = await fetch(`${API_BASE}/api/name-list`, {
+      method: "DELETE"
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      setNameListMessage(error.detail ?? "Unable to delete name list.");
+      return;
+    }
+    setNameList(null);
+    setNameListMessage("Name list deleted.");
+  };
+
   const fetchPlot = async () => {
     if (!selectedSeries || selectedFiles.length === 0) {
       setStatusMessage("Choose a series name and at least one file.");
@@ -1097,13 +1184,25 @@ export default function Home() {
                     {file.name} ({file.series_by_sheet[selectedSheet]?.length ?? 0} series)
                   </label>
                   <div className="file-actions">
-                    <a
+                    <input
+                      className="download-input"
+                      type="text"
+                      value={downloadNames[file.id] ?? file.name}
+                      onChange={(event) =>
+                        setDownloadNames((prev) => ({
+                          ...prev,
+                          [file.id]: event.target.value
+                        }))
+                      }
+                      aria-label={`Download name for ${file.name}`}
+                    />
+                    <button
                       className="ghost-button action-download"
-                      href={`${API_BASE}/api/input-files/${file.id}/download`}
-                      download
+                      type="button"
+                      onClick={() => void downloadInputFile(file.id)}
                     >
                       Download
-                    </a>
+                    </button>
                     <button
                       className="ghost-button action-delete"
                       type="button"
@@ -1125,7 +1224,17 @@ export default function Home() {
 
       <section className="card">
         <div className="section-title">Name list filter (optional)</div>
-        <input type="file" accept=".xlsx" onChange={handleNameListUpload} />
+        <div className="name-list-actions">
+          <input type="file" accept=".xlsx" onChange={handleNameListUpload} />
+          <button
+            className="ghost-button action-delete"
+            type="button"
+            onClick={() => void handleNameListDelete()}
+            disabled={!nameList}
+          >
+            Delete name list
+          </button>
+        </div>
         {nameListMessage && <p className="notice">Name list status: {nameListMessage}</p>}
         <p className="notice">
           Upload an Excel file with a single sheet and a Mnemonic column to limit the Mnemonic
